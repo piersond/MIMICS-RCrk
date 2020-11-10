@@ -158,6 +158,55 @@ RXEQ <- function(t, y, pars) {
              tau_K[1]*exp(tau_K[2]*fMET))   
     tau <- tau * Tau_MOD1 * Tau_MOD2
     
+##############################################################################################    
+    # ---------- Moisture ----------------------
+    #   #Read in soil moisture data as in CORPSE
+    theta_liq  = min(1.0, casamet%moistavg(npt)/soil%ssat(npt))     # fraction of liquid water-filled pore space (0.0 - 1.0)
+    theta_frzn = min(1.0, casamet%frznmoistavg(npt)/soil%ssat(npt)) # fraction of frozen water-filled pore space (0.0 - 1.0)
+    air_filled_porosity = max(0.0, 1.0-theta_liq-theta_frzn)
+    #   
+    #   if (mimicsbiome%fWFunction .eq. CORPSE) then
+    #   ! CORPSE water scalar, adjusted to give maximum values of 1
+    fW = (theta_liq**3 * air_filled_porosity**2.5)/0.022600567942709
+    fW = max(0.05, fW) 
+    #   elseif (mimicsbiome%fWFunction .eq. CASACNP) then
+    #   ! CASA water scalar, does not use frozen water in the calculation!
+    #     ! local variables
+    #   fW = ((theta_liq-wfpscoefb)/(wfpscoefa-wfpscoefb))**wfpscoefe &
+    #     * ((theta_liq-wfpscoefc)/(wfpscoefa-wfpscoefc))**wfpscoefd      
+    #   fW = min(fW, 1.0)
+    #   fW = max(0.01, fW)
+    #   else
+    #     fW = 1.0
+    #   endif
+    #   
+    mimicspool%fW(npt) =  fW
+    mimicspool%thetaLiq(npt)  =  theta_liq
+    mimicspool%thetaFrzn(npt) =  theta_frzn
+    
+    #Adjust Vmax using fW
+      ### Remove "mimicsbiome%"
+      ### Tsoil --> TSOI
+    mimicsbiome%Vmax(npt,R1) = exp(mimicsbiome%Vslope(R1) * Tsoil + mimicsbiome%Vint(R1)) &
+      * mimicsbiome%av(R1) * mimicsbiome%Vmod(R1) *fW
+    mimicsbiome%Vmax(npt,R2) = exp(mimicsbiome%Vslope(R2) * Tsoil + mimicsbiome%Vint(R2)) &
+      * mimicsbiome%av(R2) * mimicsbiome%Vmod(R2) *fW
+    mimicsbiome%Vmax(npt,R3) = exp(mimicsbiome%Vslope(R3) * Tsoil + mimicsbiome%Vint(R3)) &
+      * mimicsbiome%av(R3) * mimicsbiome%Vmod(R3) *fW
+    mimicsbiome%Vmax(npt,K1) = exp(mimicsbiome%Vslope(K1) * Tsoil + mimicsbiome%Vint(K1)) &
+      * mimicsbiome%av(K1) * mimicsbiome%Vmod(K1) *fW
+    mimicsbiome%Vmax(npt,K2) = exp(mimicsbiome%Vslope(K2) * Tsoil + mimicsbiome%Vint(K2)) &
+      * mimicsbiome%av(K2) * mimicsbiome%Vmod(K2) *fW
+    mimicsbiome%Vmax(npt,K3) = exp(mimicsbiome%Vslope(K3) * Tsoil + mimicsbiome%Vint(K3)) &
+      * mimicsbiome%av(K3) * mimicsbiome%Vmod(K3) *fW
+
+    # WW also modify TAU as a function of soil moisture, so things don't colapse in frozen soils...
+    mimicsbiome%tauR(npt) = mimicsbiome%tauR(npt) * fW
+    mimicsbiome%tauK(npt) = mimicsbiome%tauK(npt) * fW
+    
+###################################################################################################################    
+    
+    
     fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
                   fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
     fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 

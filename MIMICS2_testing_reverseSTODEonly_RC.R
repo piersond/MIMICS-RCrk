@@ -18,8 +18,7 @@
 # -----------------------------------------------------------
 
 rm(list=ls())
-#dir <- '/Users/wwieder/Will/git_repos_local/MIMICS/'
-dir <- '/github/MIMICS/'
+dir <- '/github/MIMICS-RCrk/'
 setwd(dir)
 
 library(rootSolve)
@@ -76,17 +75,32 @@ RXEQ <- function(t, y, pars) {
   attach(parameters)
   depth <- parameters$depth[1]
   
+  #DP PARAMETER EDIT
+  # #Tau_MOD[1] <- Tau_MOD[1] * 0.5 
+  #Tau_MOD[2] <- Tau_MOD[2] * .02 
+  # 
+  #tau_r[1] <- tau_r[1] * 0.018
+  #tau_r[2] <- tau_r[2] * 0.6
+  # 
+  # #tau_K[1] <- tau_K[1] * 0.01
+  # #tau_K[2] <- tau_K[2] * 0.1
+  # 
+ 
+
+  
   litter <- read.csv("LIDET_SITE_obs/LitterCharacteristics.csv")
   litter <- litter[1:6,]   #subset foliar litter only 
   attach(litter)
   calcN    <- (1 / litCN) / 2.5 * 100    
   lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
   
-  data <- read.csv("LIDET_SITE_obs/RC_forMIMICS_all.csv.csv") #site level forcing variables
-  names(data)
-  attach(data)
+
   
   KO <- parameters$KO
+  #DP set
+  #KO[1] <- KO[1] * 1.2
+  #KO[2] <- KO[2] * 0.01 
+  
   ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
   clay  <- data$CLAY2/100  				    # if needed, convert from % clay to fraction
   tsoi  <- MAT
@@ -225,7 +239,32 @@ RXEQ <- function(t, y, pars) {
        xlab=expression(paste("Predicted SOC (kg C ", m^-2, ")")))
   legend("topleft", pch = 16, cex=1.1, col=0, pt.cex=0.9, legend=cor1text,bty="n")
 
+plot(MIMSOC-3, data$SOC,
+     ylab=expression(paste("Observed SOC (kg C m-2)")),
+     xlab=expression(paste("Predicted SOC (kg C m-2)")))
 abline(0,1, lty=2)
-text(10,9.5,"1:1")
-text(MIMSOC, data$SOC, labels = Site,col=1)
+text(3,3.5,"1:1")
+text(MIMSOC, data$SOC, labels = Site,col=1,adj=-0.5)
+
+
+## ggplot
+
+library(ggplot2)
+data$MIMSOC <- MIMSOC
+ggplot(data, aes(x=MIMSOC, y=SOC, color=MAP)) + geom_point() +
+  scale_color_gradientn(colours = rainbow(5)) +
+  #xlim(2,8) + ylim(0,14) +
+  geom_abline(mapping=aes(slope=1, intercept=0), linetype="dotted") 
+
+
+
+
+
+
+
+
+
+
+
+
 

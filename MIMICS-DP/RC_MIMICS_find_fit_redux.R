@@ -18,8 +18,7 @@
 # -----------------------------------------------------------
 
 rm(list=ls())
-#dir <- '/Users/wwieder/Will/git_repos_local/MIMICS/'
-dir <- '/github/MIMICS/'
+dir <- 'c:/github/MIMICS-RCrk/MIMICS-DP'
 setwd(dir)
 
 library(rootSolve)
@@ -70,21 +69,55 @@ RXEQ <- function(t, y, pars) {
 #---------------------------------------------------------
 # (A)       Read in parameters and site level data
 #---------------------------------------------------------
-  para_file <- paste("parameters_LIDET-MIM-REV.csv", sep = "") 
+  para_file <- paste("MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
   parameters <- read.csv(para_file)
   names(parameters)
-  attach(parameters)
   depth <- parameters$depth[1]
+  attach(parameters)
   
-  litter <- read.csv("LIDET_SITE_obs/LitterCharacteristics.csv")
+  
+  litter <- read.csv("Litter_Characteristics/LIDET_LitterCharacteristics.csv")
   litter <- litter[1:6,]   #subset foliar litter only 
   attach(litter)
-  calcN    <- (1 / litCN) / 2.5 * 100    
-  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+ 
   
-  data <- read.csv("LIDET_SITE_obs/RC_forMIMICS_all.csv.csv") #site level forcing variables
-  names(data)
+  data <- read.csv("SITE_data/RC_forMIMICS_all.csv") #site level forcing variables
+  ### FILTER DATA ###
+  data <- data[data$L1 != "Johnston Draw",]
   attach(data)
+  
+  
+j <- 0
+fit <- data.frame(r2=0, eqn=0, int=0,
+                  tau_r1 = tau_r[1], tau_r2 = tau_r[2],
+                  tau_K1 = tau_K[1], tau_K2 = tau_K[2],
+                  tau_MOD1 = Tau_MOD[1])
+while(j < 1000) {
+  j = j+1
+  print(paste0("RUN: ",j))
+  
+  
+  rm(list=setdiff(ls(), c("j","data","litter","parameters","RXEQ","fit")))
+  #set random parameters
+  #########
+  tau_r[1] <- runif(1,1,100)/100000
+  tau_r[2] <- runif(1,1,10)/10
+  tau_K[1] <- runif(1,1,100)/10000
+  tau_K[2] <- runif(1,1,10)/10
+  Tau_MOD[1] <- runif(1,100,200)
+  
+  ##########
+
+  # tau_r[1] <- 1.876706e-05
+  # tau_r[2] <- 0.9071489
+  # tau_K[1] <- 0.0096833238
+  # tau_K[2] <- 0.3583482
+  # Tau_MOD[1] <- 123.4688
+  
+  
+  
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)  
   
   KO <- parameters$KO
   ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
@@ -134,7 +167,7 @@ RXEQ <- function(t, y, pars) {
   
   for (i in 1:nsites) {         #speeds up debugging     	
     # Read in site characteristics -----------
-    print(paste("-------- starting ", data$Site[i], " --------") )
+    #print(paste("-------- starting ", data$Site[i], " --------") )
     
     fMET       <- mean(lit_fMET)           # uses mean litter fmet from LIDET
     # fMET       <- fMET1[i]                 # uses site estimate for fmet
@@ -202,7 +235,7 @@ RXEQ <- function(t, y, pars) {
                 MIC_1 = mic[1], MIC_2 = mic[2], 
                 SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
     test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
-    if (i == 2) {print(test[1])}
+    #if (i == 2) {print(test[1])}
     remove(lit, mic, som)
   
     table[i,2:8] <- as.numeric(test[[1]])
@@ -215,17 +248,33 @@ RXEQ <- function(t, y, pars) {
   
   } # close i loop (sites)
   
-  r <- cor.test(data$SOC, MIMSOC)
-  cor1text <- paste("r = ", signif(r[[4]][[1]], digits=2))
-  par(mar=c(5,5,2,1))
-  plot(MIMSOC, data$SOC,ylim=c(0,10), xlim=c(0,10), col=0,
-       pch=16, cex.lab=1.2, cex.axis = 1.2, cex=1.8,
-       main=paste0('KO = ',KO[1]),
-       ylab=expression(paste("Observed SOC (kg C ", m^-2, ")")),
-       xlab=expression(paste("Predicted SOC (kg C ", m^-2, ")")))
-  legend("topleft", pch = 16, cex=1.1, col=0, pt.cex=0.9, legend=cor1text,bty="n")
+  # correlation
+  r_test <- NA
+  r_test <- cor.test(SOC, MIMSOC)
+  r_val <- NA
+  r_val <- round(as.numeric(unlist(r_test['estimate'])),3)
+  
+  # linear fit
+  mdl <- NA
+  mdl <- lm(SOC~MIMSOC)
+  mdl_smry <- summary(mdl)
+  
+  intcep <- NA
+  intcep <- round(mdl_smry$coefficients[1, 1],2)
+  
+  rel <- NA
+  rel <- round(mdl_smry$coefficients[2, 1],2)
 
-abline(0,1, lty=2)
-text(10,9.5,"1:1")
-text(MIMSOC, data$SOC, labels = Site,col=1)
+  #plot
+  #plot(x=MIMSOC, y=SOC)
+  
+  #store values
+  run_data <- NA
+  run_data <- data.frame(r2 = r_val, eqn = paste0(rel,"y"), int = intcep,
+                         tau_r1 = tau_r[1], tau_r2 = tau_r[2],
+                         tau_K1 = tau_K[1], tau_K2 = tau_K[2],
+                         tau_MOD1 = Tau_MOD[1])
+  
+  fit <- rbind(fit, run_data)
+}
 
