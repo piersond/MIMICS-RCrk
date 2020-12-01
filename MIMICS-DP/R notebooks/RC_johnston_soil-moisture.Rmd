@@ -505,13 +505,13 @@ NOTE: There's soil temp data included as well.
 ***
 
 ### Next up:
-#### [Add soil water constraint to MIMICS sandbox version](http://example.com)
+#### [Estimate of soil water inputs by elevation and aspect](http://example.com)
 
 ***
 
 <div style="font-size: 10px; color: #555555">
 Derek Pierson
-Last modified: 11/19/20
+Last modified: 11/21/20
 </div>
 
 

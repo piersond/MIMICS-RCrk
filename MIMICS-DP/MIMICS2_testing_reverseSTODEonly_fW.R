@@ -19,7 +19,7 @@
 
 rm(list=ls())
 #dir <- '/Users/wwieder/Will/git_repos_local/MIMICS/'
-dir <- '/github/MIMICS/'
+dir <- '/GitHub/MIMICS-RCrk/MIMICS-DP/'
 setwd(dir)
 
 library(rootSolve)
@@ -70,25 +70,26 @@ RXEQ <- function(t, y, pars) {
 #---------------------------------------------------------
 # (A)       Read in parameters and site level data
 #---------------------------------------------------------
-  para_file <- paste("parameters_LIDET-MIM-REV.csv", sep = "") 
+  para_file <- paste("MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
   parameters <- read.csv(para_file)
   names(parameters)
   attach(parameters)
   depth <- parameters$depth[1]
   
-  litter <- read.csv("LIDET_SITE_obs/LitterCharacteristics.csv")
+  litter <- read.csv("Litter_Characteristics/LIDET_LitterCharacteristics.csv")
   litter <- litter[1:6,]   #subset foliar litter only 
   attach(litter)
   calcN    <- (1 / litCN) / 2.5 * 100    
   lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
   
-  data <- read.csv("LIDET_SITE_obs/RC_forMIMICS_all.csv.csv") #site level forcing variables
+  data <- read.csv("Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
   names(data)
   attach(data)
   
   KO <- parameters$KO
-  ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
-  clay  <- data$CLAY2/100  				    # if needed, convert from % clay to fraction
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- data$pGPP+400
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
   tsoi  <- MAT
   nsites<- length(Site)
   
@@ -140,14 +141,15 @@ RXEQ <- function(t, y, pars) {
     # fMET       <- fMET1[i]                 # uses site estimate for fmet
     fCLAY      <- clay[i]
     TSOI       <- tsoi[i]
-    EST_LIT_in <- ANPP[i] / (365*24)         # gC/m2/h (from gC/m2/y)
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
     h2y        <- 24*365
     MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
     EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
     
     # ------------ caclulate parameters ---------------
-    Vmax     <- exp(TSOI * Vslope + Vint) * aV
-    Km       <- exp(TSOI * Kslope + Kint) * aK
+    Vmax     <- exp(TSOI * Vslope + Vint*2) * aV 
+    Km       <- exp(TSOI * Kslope + Kint/2) * aK
     
     #ANPP strongly correlated with MAP
     Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
@@ -158,61 +160,12 @@ RXEQ <- function(t, y, pars) {
              tau_K[1]*exp(tau_K[2]*fMET))   
     tau <- tau * Tau_MOD1 * Tau_MOD2
     
-##############################################################################################    
-    # ---------- Moisture ----------------------
-    #   #Read in soil moisture data as in CORPSE
-    theta_liq  = min(1.0, casamet%moistavg(npt)/soil%ssat(npt))     # fraction of liquid water-filled pore space (0.0 - 1.0)
-    theta_frzn = min(1.0, casamet%frznmoistavg(npt)/soil%ssat(npt)) # fraction of frozen water-filled pore space (0.0 - 1.0)
-    air_filled_porosity = max(0.0, 1.0-theta_liq-theta_frzn)
-    #   
-    #   if (mimicsbiome%fWFunction .eq. CORPSE) then
-    #   ! CORPSE water scalar, adjusted to give maximum values of 1
-    fW = (theta_liq**3 * air_filled_porosity**2.5)/0.022600567942709
-    fW = max(0.05, fW) 
-    #   elseif (mimicsbiome%fWFunction .eq. CASACNP) then
-    #   ! CASA water scalar, does not use frozen water in the calculation!
-    #     ! local variables
-    #   fW = ((theta_liq-wfpscoefb)/(wfpscoefa-wfpscoefb))**wfpscoefe &
-    #     * ((theta_liq-wfpscoefc)/(wfpscoefa-wfpscoefc))**wfpscoefd      
-    #   fW = min(fW, 1.0)
-    #   fW = max(0.01, fW)
-    #   else
-    #     fW = 1.0
-    #   endif
-    #   
-    mimicspool%fW(npt) =  fW
-    mimicspool%thetaLiq(npt)  =  theta_liq
-    mimicspool%thetaFrzn(npt) =  theta_frzn
-    
-    #Adjust Vmax using fW
-      ### Remove "mimicsbiome%"
-      ### Tsoil --> TSOI
-    mimicsbiome%Vmax(npt,R1) = exp(mimicsbiome%Vslope(R1) * Tsoil + mimicsbiome%Vint(R1)) &
-      * mimicsbiome%av(R1) * mimicsbiome%Vmod(R1) *fW
-    mimicsbiome%Vmax(npt,R2) = exp(mimicsbiome%Vslope(R2) * Tsoil + mimicsbiome%Vint(R2)) &
-      * mimicsbiome%av(R2) * mimicsbiome%Vmod(R2) *fW
-    mimicsbiome%Vmax(npt,R3) = exp(mimicsbiome%Vslope(R3) * Tsoil + mimicsbiome%Vint(R3)) &
-      * mimicsbiome%av(R3) * mimicsbiome%Vmod(R3) *fW
-    mimicsbiome%Vmax(npt,K1) = exp(mimicsbiome%Vslope(K1) * Tsoil + mimicsbiome%Vint(K1)) &
-      * mimicsbiome%av(K1) * mimicsbiome%Vmod(K1) *fW
-    mimicsbiome%Vmax(npt,K2) = exp(mimicsbiome%Vslope(K2) * Tsoil + mimicsbiome%Vint(K2)) &
-      * mimicsbiome%av(K2) * mimicsbiome%Vmod(K2) *fW
-    mimicsbiome%Vmax(npt,K3) = exp(mimicsbiome%Vslope(K3) * Tsoil + mimicsbiome%Vint(K3)) &
-      * mimicsbiome%av(K3) * mimicsbiome%Vmod(K3) *fW
-
-    # WW also modify TAU as a function of soil moisture, so things don't colapse in frozen soils...
-    mimicsbiome%tauR(npt) = mimicsbiome%tauR(npt) * fW
-    mimicsbiome%tauK(npt) = mimicsbiome%tauK(npt) * fW
-    
-###################################################################################################################    
-    
-    
     fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
                   fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
     fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
                   fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
     fAVAI    <- 1- (fPHYS + fCHEM)
-    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                  #CHANGED FOR GLOBAL RUN!!!     
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
     
     #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
     #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
@@ -223,7 +176,7 @@ RXEQ <- function(t, y, pars) {
     k_MOD[3] <- k_MOD[3] * pSCALAR    
     k_MOD[6] <- k_MOD[6] * pSCALAR    
     
-    VMAX     <- Vmax * v_MOD 
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
     KM       <- Km / k_MOD
     
     #initialize pools
@@ -264,17 +217,37 @@ RXEQ <- function(t, y, pars) {
   
   } # close i loop (sites)
   
-  r <- cor.test(data$SOC, MIMSOC)
-  cor1text <- paste("r = ", signif(r[[4]][[1]], digits=2))
-  par(mar=c(5,5,2,1))
-  plot(MIMSOC, data$SOC,ylim=c(0,10), xlim=c(0,10), col=0,
-       pch=16, cex.lab=1.2, cex.axis = 1.2, cex=1.8,
-       main=paste0('KO = ',KO[1]),
-       ylab=expression(paste("Observed SOC (kg C ", m^-2, ")")),
-       xlab=expression(paste("Predicted SOC (kg C ", m^-2, ")")))
-  legend("topleft", pch = 16, cex=1.1, col=0, pt.cex=0.9, legend=cor1text,bty="n")
+  
+#plot results  
+library(ggplot2)
 
-abline(0,1, lty=2)
-text(10,9.5,"1:1")
-text(MIMSOC, data$SOC, labels = Site,col=1)
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+midp=mean(data$pGPP+400)
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP+400)) + geom_point() +
+  scale_color_gradient2(midpoint=midp, low="blue", mid="green", high="red", space ="Lab" ) +
+  #xlim(0,10) +
+  #ylim(0,10) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 2, y = 11, size = 3, colour = "dark blue")
+MIM_plot
+
+
+####
+MIM_plot2 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point(size=2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  ylim(0,7)
+MIM_plot2
+
+####
+MIM_plot3 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=ASPECT_CLA)) + geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  ylim(0,7)
+MIM_plot3
 

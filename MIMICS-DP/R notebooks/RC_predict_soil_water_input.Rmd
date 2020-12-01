@@ -1,0 +1,308 @@
+---
+title: "Estimate RCrk soil water inputs "
+output:
+  html_document:
+    code_folding: show
+---
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(reshape2)
+
+```
+
+### Water data roadblock 
+Field sensor data is not straightforward in Johnston Draw. The Kormos raster of mean annual precip is not sensitive to aspect effects on soil water inputs. Leaving us with no water data that captures the known aspect effects on snow at RCrk. How do we get around this roadblock? 
+
+* Perhaps we skip the field data for now...
+
+* Alternate approach, we build the soil water data based on an "expected" relationship between soil water inputs and aspect + elevation. Then we drive MIMICS with the predicted soil water data to observe how the effects play out on our SOC predictions.
+
+<br>
+<br>
+
+### Ballparking the elevation and aspect relationships with RCrk soil water inputs
+
+* ~50% more precip on North facing slopes relative to south faces
+
+* Difference primarily comes from snow, which serves to elongate the growing season as things warm up in the spring. Thus, effect on NPP and soil activity may not be linear, e.g. effect from more water may be greater than 1.5x. Keep this in mind for MIMICS later.
+
+* Expect the aspect effect on moisture to be attenuated by elevation, both at the low and high end. e.g. Low elevation the effect is less because of lower snow accumulation. Mid-elevations see greatest effect due to water stress and large difference in snow accumulation between opposing slopes. High elevations get more snow everywhere, regardless of aspect. Aspect effect is present, but less important to growing season than in mid-elevations.
+
+<br>
+<br>
+
+### Start with a broad relationship we trust
+
+- The general relationship between mean annual precip and elevation across all of Reynolds Creek gives us a place to start.
+
+- Using the Kormos raster, we get the following trendline:
+
+```{r}
+#RCrk: precip by elevation
+
+#get RC data points
+RC_pts <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/RC_forMIMICS_all-rstr_110620.csv", as.is=T)
+
+# test correlation and model fit
+r2_test <- cor.test(RC_pts$Kormos_MAP, RC_pts$ELEVATION)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+map_mdl <- lm(RC_pts$Kormos_MAP~RC_pts$ELEVATION)
+mdl_smry <- summary(map_mdl)
+intcep <- round(mdl_smry$coefficients[1, 1],2)
+rel <- round(mdl_smry$coefficients[2, 1],2)
+
+#plots
+MAP_elev_L1 <- ggplot(RC_pts %>% na.omit(), aes(y=Kormos_MAP, x=ELEVATION, color=L1)) + geom_point() +
+  geom_abline(intercept = intcep, slope = rel, linetype = "dashed") +
+  annotate("text", label = "MAP = 0.72 * ELEV - 641", x = 1600, y = 850, size = 4, colour = "dark blue") +
+  annotate("text", label = "r^2 = 0.9", x = 1600, y = 780, size = 4, colour = "dark blue")
+  
+  
+MAP_elev_AC <- ggplot(RC_pts %>% na.omit(), aes(y=Kormos_MAP, x=ELEVATION, color=ASPECT_CLA)) + geom_point() +
+  geom_abline(intercept = intcep, slope = rel, linetype = "dashed")
+
+grid.arrange(MAP_elev_L1, MAP_elev_AC, ncol=1)
+
+
+```
+
+##### Remember, **Kormos MAP is not correct** at small to intermediate catchment scales. It is heavily driven by elevation (r2 > 0.89) and does not reflect aspect effects on snow inputs. 
+
+(?) East vs. West half of RC watershed differences in precipitation. Is that real? Due to storm drop? ...perhaps also a factor to consider when predicting MAP?
+
+<br>
+<br>
+
+## Predicting water inputs at RCrk based on elevation and aspect
+
+Using the trendline equation for the relationship between MAP and Elevation at RCrk, we transfer that eqn into a series of point values:
+
+```{r}
+est_df <- data.frame(ELEV=seq(1000,2200, 10))
+est_df$MAP <- (est_df$ELEV*0.72)-641
+
+ggplot(est_df, aes(x=ELEV, y=MAP)) + geom_point(alpha=0.5)
+
+```
+
+#### Next, we need to define a multiplier to adjust for aspect effects on water inputs to soil.
+
+1. A simple factor of 1.5x would be incorrect, as discussed above. Better approach is to weight the aspect effect by elevation, beginning at an elevational threshold where snow retention through the growing season becomes sensitive to the aspect of the hillslope. 
+
+2. A more complex multiplier could be used to reduce the effect at high elevations, where differences in snow pack between opposing aspects may be less pronounced due to vegetative cover. **Example shown, but not used, keeping it simple for now) 
+
+3. We can also weight the aspect effect by aspect class, where east and west facing slopes are affected, but to a lesser extent. 
+
+```{r}
+#create dataframe with rising and falling effect multiplier
+
+mult_df <- data.frame(range=seq(0,1200,1))
+mult_df$rising_sig <- 1/(1+(exp(-(mult_df$range-600)/40)))
+mult_df$falling_sig <- 0.5/(1+(exp(-(mult_df$range-950)/200)))
+mult_df$complex <- mult_df$rising_sig-(mult_df$falling_sig)+1
+
+# plot(mult_df$range+1000, mult_df$rising_sig)
+# plot(mult_df$range+1000, mult_df$falling_sig)
+# plot(mult_df$range+1000, (mult_df$rising_sig-(mult_df$falling_sig))+1)
+
+ggplot(mult_df, aes(x=range+1000, y=(rising_sig/2)+1)) + geom_point() +
+  xlab("Elevation") +
+  ylab("Aspect multiplier") + 
+  ggtitle("Simple sigmoid threshold multiplier")
+
+ggplot(mult_df, aes(x=range+1000, y=complex)) + geom_point() +
+  xlab("Elevation") +
+  ylab("Aspect multiplier") +
+  ggtitle("Complex multiplier")
+
+```
+
+<br>
+
+#### Apply simple aspect multiplier to MAP predicted by elevation and we get:
+
+```{r results='hide', message=FALSE}
+#Build dataframe and apply simple aspect multiplier
+pred_df <- data.frame(Elevation = seq(1000,2200, 1), 
+                      South_eMAP = (seq(1000,2200, 1)*0.72)-641)
+                 
+pred_df$North_eMAP <- pred_df$South_eMAP * ((mult_df$rising_sig/2)+1)
+
+#The divide by 3 causes EAST and WEST faces to get 1/3 of the north aspect effect
+pred_df$EastWest_eMAP <- pred_df$South_eMAP * (((((mult_df$rising_sig/2)+1)-1)/3)+1)
+
+#plot
+melted_pred_df <<- melt(pred_df, id.vars=c("Elevation"))
+
+ggplot(melted_pred_df, aes(x=Elevation, y=value, color=variable)) + geom_point(alpha=0.5) +
+  xlab("Elevation (m)") +
+  ylab ("Predicted effective mean annual precip (mm)") +
+  ggtitle("Simple aspect multiplier effect on soil water inputs")
+
+```
+
+- East and West faces set to get 1/3 of the North aspect effect multiplier
+- This assumes the elevational relationship we started with is based on the south facing slopes. This may be incorrect and result in an over-estimate, but should be fine for our model testing purposes.
+
+```{r echo=FALSE}
+
+# Repeat for more complex aspect multiplier
+# pred_df$North_eMAP_complex <- pred_df$South_eMAP * ((mult_df$complex/2)+1)
+# 
+# pred_df$EastWest_eMAP_complex <- pred_df$South_eMAP * (((((mult_df$complex/2)+1)-1)/2)+1)
+# 
+# #plot
+# melted_pred_df_complex <<- melt(pred_df, id.vars=c("Elevation"))
+# 
+# ggplot(melted_pred_df_complex, aes(x=Elevation, y=value, color=variable)) + geom_point(alpha=0.5) +
+#   xlab("Elevation (m)") +
+#   ylab ("Predicted effective mean annual precip (mm)") +
+#   ggtitle("Simple & complex aspect multiplier effect on water input to soil")
+
+```
+
+<br>
+<br>
+
+### Apply aspect factor to raster for RCrk
+ - Calc by DEM and aspect
+ 
+```{r echo=FALSE, message=FALSE}
+library(sp)
+library(raster)
+library(rgdal)
+```
+
+```{r message=FALSE}
+
+#load raster images
+dem <- raster("C:/Users/drkpi/Google Drive/RCrk/GIS/spatial data/DEM/rcew_DEM_3m_filled.tif")
+aspect <- raster("C:/Users/drkpi/Google Drive/RCrk/GIS/spatial data/ASPECT/RC_aspect_3m1.tif")
+
+#view coordinate reference systems
+dem@crs
+aspect@crs
+
+#plot(dem)
+#plot(aspect)
+
+# create matrix to apply north aspect effect aspect
+n_effect_m <- melted_pred_df %>% filter(variable == "North_eMAP") %>% 
+                    mutate(low = Elevation-1,
+                           high = Elevation) %>%
+                    dplyr::select(low, high, value)
+
+#Reclassify DEM based on aspect_effect matrix
+n_pred_map <- reclassify(dem, n_effect_m, right = T)
+#plot(n_pred_map)
+
+# create matrix to apply east-west aspect effect aspect
+ew_effect_m <- melted_pred_df %>% filter(variable == "EastWest_eMAP") %>% 
+                    mutate(low = Elevation-1,
+                           high = Elevation) %>%
+                    dplyr::select(low, high, value)
+
+#Reclassify DEM based on aspect_effect matrix
+ew_pred_map <- reclassify(dem, ew_effect_m, right = T)
+
+
+# create matrix to apply south aspect effect aspect
+s_effect_m <- melted_pred_df %>% filter(variable == "South_eMAP") %>% 
+                    mutate(low = Elevation-1,
+                           high = Elevation) %>%
+                    dplyr::select(low, high, value)
+
+#Reclassify DEM based on aspect_effect matrix
+s_pred_map <- reclassify(dem, s_effect_m, right = T)
+
+
+## Based on aspect, build predicted RC mean annual precip raster
+overlay_func <- function(a, n, ew, s) { 
+  ifelse(a < 67.5, n, 
+    ifelse(a >= 67.5 & a < 112.5, ew,
+      ifelse(a >= 112.5 & a < 247.5, s,
+       ifelse(a >= 247.5 & a < 292.5, ew,
+        ifelse(a >= 292.5 & a < 360.5, n, 0))))) 
+    }
+
+RC_pred_map <- overlay(stack(aspect, n_pred_map, ew_pred_map, s_pred_map), fun = overlay_func ) 
+
+#plot final MAP product
+#plot(RC_pred_map)
+
+#save for use in ArcMap
+#writeRaster(RC_pred_map, filename = "C:/Users/drkpi/Google Drive/RCrk/GIS/spatial data/PREDICTED_MAP/RC_pred_map.tif", 
+#            options=c('TFW=YES'))
+
+```
+
+<br>
+<br>
+
+
+<center>
+<span style="font-size: 16px">Rough prediction of effective soil water input @ RCrk (mean annual, mm)</span>
+<br>
+![RC predicted MAP](images/rough_pred_MAP_by_aspect.jpg){width=50%}
+
+<br>
+
+<span style="font-size: 16px">Johnston Draw predicted soil water input (mean annual, mm)</span>
+<br>
+![JD Predicted MAP](images/JD_predicted_map.jpg){width=80%}
+
+<br>
+
+<span style="font-size: 16px">Kormos - Johnston Draw mean annual precipitation (mm)</span>
+<br>
+![JD Kormos MAP](images/JD_Kormos_map.jpg){width=80%}
+
+</center>
+
+<br>
+
+Note: The predicted soil water map is simply a rough estimate for modeling purposes. The map allows us to test what happens in MIMICS when we give more water to north aspects. If the model predictions improve with the estimated water map, we can circle back to improve the estimate algorithm or use another data source that accounts for aspect effects on soil water inputs.
+
+
+Plot predicted water inputs by elevation and aspect (vs. plot from Kormos)
+
+```{r}
+
+predMAP_pts <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_predMAP_112320.csv")
+
+ggplot(predMAP_pts %>% na.omit(), aes(y=pred_MAP, x=ELEVATION, color=ASPECT_CLA)) + geom_point() +
+  ylab("Predicted soil water input (mm)")
+
+ggplot(predMAP_pts %>% na.omit(), aes(y=pred_MAP, x=ELEVATION, color=L1)) + geom_point() +
+  ylab("Predicted soil water input (mm)")
+
+```
+
+<br>
+<br>
+
+
+***
+
+### Next up:
+#### [Add soil water constraint to MIMICS sandbox version](http://example.com)
+
+***
+
+<div style="font-size: 10px; color: #555555">
+Derek Pierson
+Last modified: 11/23/20
+</div>
+
+
+
+
+
