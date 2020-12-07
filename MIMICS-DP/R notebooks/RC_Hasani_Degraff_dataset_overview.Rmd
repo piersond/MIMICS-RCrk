@@ -1,0 +1,439 @@
+---
+title: "Delvinne & de Graaff, RCrk Data Overview"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(readxl)
+library(leaflet)
+library(viridis)
+library(reshape)
+
+options(ggplot2.continuous.colour="viridis")
+options(ggplot2.continuous.fill = "viridis")
+options(width = 100)
+
+### Data folder
+data_path <- "C:/Users/Derek/Google Drive/RCrk/RC data from Marie Anne/" 
+```
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+#function for converting RC UTM locs to decimal degree
+library(rgdal)
+#utm <- utm[complete.cases(utm),]
+#utm1 <- data.frame(x=utm$Northing,y=utm$Easting) 
+
+UTM_to_DD <- function(east, north) {
+  df <- data.frame(x=east, y=north)
+  coordinates(df) <- ~x+y 
+  class(df)
+  suppressWarnings(
+    proj4string(df) <- CRS("+proj=utm +zone=11 +datum=WGS84 +units=m +ellps=WGS84")
+  )
+  suppressWarnings(
+  proj4string(df) <- CRS("+proj=utm +zone=11 +datum=WGS84 +units=m +ellps=WGS84") 
+  )
+  df2 <- spTransform(df,CRS("+proj=longlat +datum=WGS84"))
+  return(coordinates(df2))
+}
+
+```
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+#rmd mapping fix
+# local({
+# 	
+# 	# The directory where Pandoc will be extracted. Feel free
+# 	# to adjust this path as appropriate.
+# 	dir <- "~/rstudio-pandoc"
+# 	
+# 	# The version of Pandoc to be installed.
+# 	version <- "2.7.1"
+# 	
+# 	# Create and move to the requested directory.
+# 	dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+# 	owd <- setwd(dir)
+# 	on.exit(setwd(owd), add = TRUE)
+# 	
+# 	# Construct path to pandoc.
+# 	root <- "https://s3.amazonaws.com/rstudio-buildtools"
+# 	suffix <- sprintf("pandoc-%s-windows-x86_64.zip", version)
+# 	url <- file.path(root, "pandoc-rstudio", version, suffix)
+# 	
+# 	# Download and extract pandoc.
+# 	file <- basename(url)
+# 	utils::download.file(url, destfile = file)
+# 	utils::unzip(file)
+# 	unlink(file)
+# 	
+# 	# Write .Renviron to update the version of Pandoc used.
+# 	entry <- paste("RSTUDIO_PANDOC", shQuote(path.expand(dir)), sep = " = ")
+# 	contents <- if (file.exists("~/.Renviron")) readLines("~/.Renviron")
+# 	filtered <- grep("^RSTUDIO_PANDOC", contents, value = TRUE, invert = TRUE)
+# 	amended <- union(filtered, entry)
+# 	writeLines(amended, "~/.Renviron")
+# 	
+# 	# Report change to the user.
+# 	writeLines("Updated .Renviron:\n")
+# 	writeLines(amended)
+# 	writeLines("\nPlease restart RStudio for these changes to take effect.")
+# 	
+# })
+
+
+```
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+#create basemap
+#Bring in RC boundary
+rc_watersheds <- readOGR("C:/github/RC-som-shiny/prototype/RCproto/map/watersheds_2014.shp", layer="watersheds_2014")
+rc_watersheds <- spTransform(rc_watersheds, CRS("+proj=longlat +datum=WGS84 +no_defs"))
+
+my_map <- leaflet() %>% 
+        addProviderTiles(
+        "Esri.WorldTopoMap",
+        # give the layer a name
+        group = "Esri.WorldTopoMap"
+      ) %>%
+        addProviderTiles(
+        "OpenStreetMap",
+        # give the layer a name
+        group = "OpenStreetMap"
+      ) %>%
+        addProviderTiles(
+          "Stamen.Toner",
+          group = "Stamen.Toner"
+        ) %>%
+        addProviderTiles(
+          "Stamen.Terrain",
+          group = "Stamen.Terrain"
+        ) %>%
+        addProviderTiles(
+          "Esri.WorldStreetMap",
+          group = "Esri.WorldStreetMap"
+        ) %>%
+        addProviderTiles(
+          "Wikimedia",
+          group = "Wikimedia"
+        ) %>%
+        addProviderTiles(
+          "CartoDB.Positron",
+          group = "CartoDB.Positron"
+        ) %>%
+        addProviderTiles(
+          "Esri.WorldImagery",
+          group = "Esri.WorldImagery"
+        ) %>%
+      # add a layers control
+      addLayersControl(
+        baseGroups = c(
+          "Esri.WorldTopoMap", "OpenStreetMap", "Stamen.Toner","Stamen.Terrain", "Esri.WorldStreetMap",
+          "Wikimedia", "CartoDB.Positron", "Esri.WorldImagery"
+        ),        
+        # position it on the topleft
+        position = "topleft"
+      )  %>%
+        addPolygons(data=rc_watersheds,
+                  col = 'black',
+                  stroke = TRUE, 
+                  weight=2,
+                  opacity=1,
+                  fillColor="grey90",
+                  fillOpacity = 0.05, 
+                  smoothFactor = 2)
+
+```
+
+
+### Overview
+#### Project includes 6 datasets that cover 4 sites spread across the Reynolds Creek elevation gradient 
+
+*Datasets:*
+
+1. Soil CN (already in SoDaH)
+
+2. Soil respiration
+
+3. Soil size fractions (0-5 cm)
+
+4. Litterfall: leaf and stock mass
+
+5. Litter CN
+
+6. Microbial composition (bacteria:fungi)
+
+
+***
+
+<br>
+
+### 1. Site map & soil CN
+
+```{r warning=FALSE}
+soilCN <- as.data.frame(read_excel(paste0(data_path,"soil C and N.xlsx"), sheet = "data"))
+
+#rename CN columns
+names(soilCN)[names(soilCN) == 'Sample ID'] <- 'SampleID'
+names(soilCN)[names(soilCN) == '%C'] <- 'Cperc'
+names(soilCN)[names(soilCN) == '%N'] <- 'Nperc'
+
+#convert coordinates to decimal degrees
+dd_coords <- as.data.frame(UTM_to_DD(soilCN$X_Easting, soilCN$Y_Northing))
+soilCN$lat <- dd_coords$y
+soilCN$long <- dd_coords$x 
+
+#rearrange the dataframe
+soilCN <- soilCN %>% select(SampleID, Location, Elevation,
+                  X_Easting, Y_Northing, lat, long,
+                  Cperc, Nperc)
+
+#fix obvious bad data
+soilCN$Nperc[soilCN$Nperc < 0.001] <- NA
+soilCN$CN <- ifelse(soilCN$Nperc > 0.001, soilCN$Cperc/soilCN$Nperc, NA)
+
+#preview data columns
+str(soilCN)
+
+##map data points
+my_map %>% addCircleMarkers(lat=soilCN$lat, lng=soilCN$long, 
+             popup=soilCN$Cperc,
+             #color = ~Cperc,   #<<< HOW TO FIX TO SHOW COLOR SCALE???
+             stroke = FALSE, 
+             fillOpacity = 0.5,
+             radius=5) 
+
+## Plot C data
+soilCN$Location <- factor(soilCN$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep", "Reynolds Mountain"))
+C_by_loc <- ggplot(soilCN, aes(x=Location, y=Cperc, fill=Location)) + geom_boxplot() +
+  xlab("Location") + ylab("Soil C (%)") + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+
+#boxplot by elevation
+C_by_elv <- ggplot(soilCN, aes(x=as.character(round(Elevation,0)), y=Cperc, fill=Location)) + geom_point(alpha=0.3) + geom_boxplot(alpha=0.5) + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) +
+  xlab ("Elevation (m)") + ylab("Soil C (%)") + theme(legend.position = "none") 
+
+grid.arrange(C_by_loc, C_by_elv, ncol=2)
+
+
+## Plot N data
+N_by_loc <- ggplot(soilCN, aes(x=Location, y=Nperc, fill=Location)) + geom_boxplot() +
+  xlab("Location") + ylab("Soil N (%)") + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+  
+#boxplot by elevation
+N_by_elv <- ggplot(soilCN, aes(x=as.character(round(Elevation,0)), y=Nperc, fill=Location)) + geom_point(alpha=0.3) + geom_boxplot(alpha=0.5) + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) +
+  xlab ("Elevation (m)") + ylab("Soil N (%)") + theme(legend.position = "none") 
+
+grid.arrange(N_by_loc, N_by_elv, ncol=2)
+
+
+## Plot CN data
+CN_by_loc <- ggplot(soilCN, aes(x=Location, y=CN, fill=Location)) + geom_boxplot() +
+  xlab("Location") + ylab("Soil C:N") + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+  
+#boxplot by elevation
+CN_by_elv <- ggplot(soilCN, aes(x=as.character(round(Elevation,0)), y=CN, fill=Location)) + geom_point(alpha=0.3) + geom_boxplot(alpha=0.5) + 
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) +
+  xlab ("Elevation (m)") + ylab("Soil C:N") + theme(legend.position = "none") 
+
+grid.arrange(CN_by_loc, CN_by_elv, ncol=2)
+```
+
+***
+
+<br>
+
+### 2. Soil respiration
+
+**Note: Reynolds Mtn has ~10x more soil C than the Flats, but the cumulative respiration difference is much, much smaller (~20% less in Flats vs. Reynolds Mtn)**
+
+```{r warning=FALSE}
+soilCO2 <- as.data.frame(read_excel(paste0(data_path,"CO2 respiration.xlsx"), sheet = "data"))
+
+#convert coordinates to decimal degrees
+dd_coords_co2 <- as.data.frame(UTM_to_DD(soilCO2$X_Easting, soilCO2$Y_Northing))
+soilCO2$lat <- dd_coords_co2$y
+soilCO2$long <- dd_coords_co2$x 
+
+#rearrange the dataframe
+soilCO2 <- soilCO2 %>% select(Day, SampleID, Location, Elevation,
+                              X_Easting, Y_Northing, lat, long,  
+                              respC_gsoil_d_15C, respC_gsoil_d_20C, respC_gsoil_d_25C, respC_gsoil_d_30C)   
+
+#set plot order
+soilCO2$Location <- factor(soilCO2$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain"))
+
+##Respiration plot
+soilCO2_daily_20C_avg <- soilCO2 %>% select(Day, Location, respC_gsoil_d_20C) %>% group_by(Day, Location) %>%
+                          summarize(CO2_20C = mean(respC_gsoil_d_20C),
+                                    CO2_20C_sterr = sd(respC_gsoil_d_20C)/sqrt(n()),
+                                    n = n())
+
+#plot daily respiration rates
+CO2_20C_plot <- ggplot(soilCO2_daily_20C_avg, aes(x=Day, y=CO2_20C, color=Location)) + geom_line() + geom_point() +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  ggtitle("Daily Soil respiration @ 20 C") +
+  xlab("Time (d)") +
+  ylab("Soil Respiration (ug Co2-C g-1 soil)")
+
+#plot cumulative respiration
+soilCO2_daily_20C_avg$CO2_20C_sum <- cumsum(soilCO2_daily_20C_avg$CO2_20C)  
+CO2_20C_sum_plot <- ggplot(soilCO2_daily_20C_avg, aes(x=Day, y=CO2_20C_sum, color=Location)) + geom_line() + geom_point() +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  ggtitle("Cumulative Soil respiration @ 20 C") +
+  xlab("Time (d)") +
+  ylab("Soil Respiration (ug Co2-C g-1 soil)")
+
+grid.arrange(CO2_20C_plot, CO2_20C_sum_plot, ncol=1)
+
+```
+
+##### **Note: CO2 by temp data exists for temps 15, 20, 25, 30 C. For purpose of quantifying Q10.**
+
+
+***
+
+<br>
+
+### 3. Soil C fractions (by particale size)
+
+**Each soil sample was fractionated to separate:**
+
+**- CPOM: Coarse particulate organic matter (>250um)** 
+
+**- FPOM: fine particulate organic matter (53-250um)** 
+
+**- Silt (250-53um)**
+
+**- Clay (<52um)**
+
+
+```{r warning=FALSE}
+fracs <- as.data.frame(read_excel(paste0(data_path,"fractions (0-5cm).xlsx"), sheet = "data"))
+
+fracs[fracs == "no data" ] <- NA
+names(fracs)[names(fracs) == 'C%'] <- 'Cperc'
+names(fracs)[names(fracs) == 'Total Fraction.Weight (g)'] <- 'frac_mass'
+
+# plot C%
+fracs$Location <- factor(fracs$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain"))
+fracs_Cby_loc <- ggplot(fracs, aes(x=Location, y=as.numeric(Cperc), fill=sediment_type)) + geom_boxplot() +
+  xlab("Location") + ylab("Fraction C (%)") + ggtitle("Fraction C concentration") +
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+fracs_Cby_loc
+
+#plot fraction mass by location
+fracs_massby_loc <- ggplot(fracs, aes(x=Location, y=as.numeric(frac_mass), fill=sediment_type)) + geom_boxplot() +
+  xlab("Location") + ylab("Fraction mass (g)") + ggtitle("Fraction mass by location") +
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+fracs_massby_loc
+
+#plot fraction mass by fraction type across location
+fracs_massby_fracloc <- ggplot(fracs, aes(x=sediment_type, y=as.numeric(frac_mass), fill=Location)) + geom_boxplot() +
+  xlab("Fraction Type") + ylab("Fraction mass (g)") + ggtitle("Fraction mass by fraction type across location") +
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+fracs_massby_fracloc
+
+#plot C content of the fractions
+fracs$Ccontent <- as.numeric(fracs$frac_mass) * as.numeric(fracs$Cperc)
+fracs_Cconby_loc <- ggplot(fracs, aes(x=Location, y=as.numeric(Ccontent), fill=sediment_type)) + geom_boxplot() +
+  xlab("Location") + ylab("Fraction C content (Relative g C per fraction)") + ggtitle("Fraction C content by Location") +
+  theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+fracs_Cconby_loc
+
+#plot elevation trend in C per fractions
+frac_sum <- fracs %>% select(Location, Elevation, sediment_type, Ccontent) %>% group_by(Location, sediment_type) %>%
+              summarize(Ccon_avg = mean(Ccontent),
+                        Ccon_se = sd(Ccontent)/sqrt(n()),
+                        Elev_avg = round(mean(Elevation),0)) %>%
+              na.omit()
+
+fracs_Cconby_elev <- ggplot(frac_sum, aes(x=Elev_avg, y=Ccon_avg, color=sediment_type)) + geom_line() + geom_point() +
+  geom_errorbar(aes(ymin=Ccon_avg-Ccon_se, ymax=Ccon_avg+Ccon_se), width=.2, alpha=0.5) +
+  xlab("Elevation (m)") + ylab("Fraction C content (Relative g C per fraction)") + ggtitle("Fraction C content by elevation")
+fracs_Cconby_elev
+```
+
+##### **Note: cPOM drop off looks to be an artifact of sand inclusion.** By mass, there is very little cPOM across all 4 sites.
+
+***
+
+##### **How to interpret this data into POM vs MAOM pools?**
+
+fPOM ==> POM pool
+clay ==> MAOM pool
+silt ==> ?
+cPOM ==> Ignore?
+
+
+***
+
+<br>
+
+### 4. Litter Stocks
+```{r message=FALSE, warning=FALSE}
+litmass <-  as.data.frame(read_excel(paste0(data_path,"Leaf and Stalk Mass (2014).xlsx"), sheet = "data"))
+
+names(litmass)[names(litmass) == 'Leaf Mass.Tot (g)'] <- 'leaf_mass'
+names(litmass)[names(litmass) == 'Stalk Mass.Tot (g)'] <- 'stock_mass'
+litmass$total_mass <- litmass$leaf_mass + litmass$stock_mass
+
+#melt data to turn mass columns into rows
+lit_mass_melt <- melt(litmass, id=c("Site", "Location", "X_Easting", "Y_Northing", "Elevation"))
+
+#plot litter mass by type and location
+lit_mass_melt$Location <- factor(lit_mass_melt$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain"))
+ggplot(lit_mass_melt, aes(x=Location, y=value, fill=variable)) + geom_boxplot() +
+  ylab("Mass (g)")
+
+```
+
+```{r message=FALSE, warning=FALSE}
+litCN <-  as.data.frame(read_excel(paste0(data_path,"litter CN.xlsx"), sheet = "data"))
+
+names(litCN)[names(litCN) == 'C%'] <- 'Cperc'
+names(litCN)[names(litCN) == 'N%'] <- 'Nperc'
+
+litCN$Location <- factor(litCN$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain"))
+
+#plot C by location and year
+ggplot(litCN, aes(x=Location, y=Cperc, group=year, fill=as.character(year))) + 
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  ylab("Litter C concentration (%)") + ggtitle("Litter C Concentration By Location")
+
+#plot CN by location and year
+ggplot(litCN, aes(x=Location, y=Cperc/Nperc, group=year, fill=as.character(year))) + 
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  ylab("Litter C:N") + ggtitle("Litter C:N By Location")
+```
+
+##### **Litterfall data take away...**
+
+- Very little leaf litterfall inputs in the lower elevations.
+
+- Not purely an elevation dominated relationship for litterfall mass. Ecosystem type dependence? (see Nancy vs. Lower Sheep)
+
+- Lower C:N in the flats, otherwise negligeable across the 3 higher elevation sites.
+
+
+***
+
+<br>
+
+### 5. Microbial Composition
+
+
+
+
