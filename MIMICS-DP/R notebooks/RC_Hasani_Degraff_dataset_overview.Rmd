@@ -1,8 +1,10 @@
 ---
 title: "Delvinne & de Graaff, RCrk Data Overview"
 output:
+  pdf_document: default
   html_document:
     code_folding: hide
+always_allow_html: true
 ---
 
 ```{r message=FALSE}
@@ -23,7 +25,7 @@ options(ggplot2.continuous.fill = "viridis")
 options(width = 100)
 
 ### Data folder
-data_path <- "C:/Users/Derek/Google Drive/RCrk/RC data from Marie Anne/" 
+data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC data from Marie Anne/" 
 ```
 
 ```{r message=FALSE, warning=FALSE, results='hide'}
@@ -320,7 +322,7 @@ grid.arrange(CO2_20C_plot, CO2_20C_sum_plot, ncol=1)
 **- Clay (<52um)**
 
 
-```{r warning=FALSE}
+```{r warning=FALSE, message=FALSE}
 fracs <- as.data.frame(read_excel(paste0(data_path,"fractions (0-5cm).xlsx"), sheet = "data"))
 
 fracs[fracs == "no data" ] <- NA
@@ -373,8 +375,11 @@ fracs_Cconby_elev
 ##### **How to interpret this data into POM vs MAOM pools?**
 
 fPOM ==> POM pool
+
 clay ==> MAOM pool
+
 silt ==> ?
+
 cPOM ==> Ignore?
 
 
@@ -433,6 +438,28 @@ ggplot(litCN, aes(x=Location, y=Cperc/Nperc, group=year, fill=as.character(year)
 <br>
 
 ### 5. Microbial Composition
+
+```{r message=FALSE, warning=FALSE}
+mb <- as.data.frame(read_excel(paste0(data_path,"Microbial Composition.xlsx"), sheet = "data"))
+
+names(mb)[names(mb) == 'total bacteria (copy#/gram soil)'] <- 'bact_g'
+names(mb)[names(mb) == 'total archaeal (copy #/gram soil)'] <- 'arch_g'
+names(mb)[names(mb) == 'total fungal (copy#/gram soil)'] <- 'fung_g'
+
+#Prep data for plot
+mb_melt <- mb %>% select(Location, bact_g, arch_g, fung_g) %>% melt("Location")
+
+mb_melt$Location <- factor(mb_melt$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain East"))
+
+#plot microbe data by location
+ggplot(mb_melt, aes(x=Location, y=as.numeric(value), fill=variable)) + geom_boxplot() +
+  ylab("Copy# / g soil")
+
+#plot fungi alone
+ggplot(mb_melt %>% filter(variable == "fung_g"), aes(x=Location, y=as.numeric(value), fill=variable)) + geom_boxplot() +
+  ylab("Copy# / g soil")
+
+```
 
 
 

@@ -1,3 +1,30 @@
+---
+title: "RCrk MIMICS: slope & curvature"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(reshape2)
+library(scales)
+library(rootSolve)
+library(boot)
+library(viridis)
+
+options(width = 100)
+```
+
+***
+
+```{r echo=FALSE, message=FALSE}
 # -----------------------------------------------------------
 # MIMICS2_testing_reverseSTODEonly
 # -----------------------------------------------------------
@@ -17,13 +44,10 @@
 # (B) Calculates steady state C pools using RXEQ & STODE function
 # -----------------------------------------------------------
 
-rm(list=ls())
-#dir <- '/Users/wwieder/Will/git_repos_local/MIMICS/'
-dir <- '/GitHub/MIMICS-RCrk/MIMICS-DP/'
-setwd(dir)
 
-library(rootSolve)
-library(boot)
+#dir <- '/Users/wwieder/Will/git_repos_local/MIMICS/'
+dir <- '/GitHub/MIMICS-RCrk/MIMICS-DP/' 
+setwd(dir)
 
 #REVERSE MODEL 
 RXEQ <- function(t, y, pars) {
@@ -62,7 +86,9 @@ RXEQ <- function(t, y, pars) {
     list(c(dLIT_1, dLIT_2, dMIC_1, dMIC_2, dSOM_1, dSOM_2, dSOM_3))
   })
 }
+```
 
+```{r message=FALSE, results=FALSE}
 #---------------------------------------------------------
 # ---- Main program -------
 #---------------------------------------------------------
@@ -70,25 +96,25 @@ RXEQ <- function(t, y, pars) {
 #---------------------------------------------------------
 # (A)       Read in parameters and site level data
 #---------------------------------------------------------
-  para_file <- paste("MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
   parameters <- read.csv(para_file)
   names(parameters)
   attach(parameters)
   depth <- parameters$depth[1]
   
-  litter <- read.csv("Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
   litter <- litter[1:6,]   #subset foliar litter only 
   attach(litter)
   calcN    <- (1 / litCN) / 2.5 * 100    
   lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
   
-  data <- read.csv("Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
   names(data)
   attach(data)
   
   KO <- parameters$KO
   #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
-  ANPP  <- data$pGPP+400
+  ANPP  <- (data$pGPP+400)/2
   clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
   tsoi  <- MAT
   nsites<- length(Site)
@@ -148,8 +174,8 @@ RXEQ <- function(t, y, pars) {
     EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
     
     # ------------ caclulate parameters ---------------
-    Vmax     <- exp(TSOI * Vslope + Vint) * aV 
-    Km       <- exp(TSOI * Kslope + Kint) * aK
+    Vmax     <- exp(TSOI * Vslope + Vint) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * Kslope + Kint) * aK  #dp: Kint/2
     
     #ANPP strongly correlated with MAP
     Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
@@ -219,8 +245,6 @@ RXEQ <- function(t, y, pars) {
   
   
 #plot results  
-library(ggplot2)
-
 data$MIMSOC <- MIMSOC  
 data$MIMMIC <- MIMMIC
 data$residual <- data$SOC-data$MIMSOC
@@ -229,29 +253,33 @@ data$residual <- data$SOC-data$MIMSOC
 r2_test <- cor.test(data$SOC, data$MIMSOC)
 r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
 
-midp=mean(data$pGPP+400)
-MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP+400)) + geom_point() +
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Watershed")
+MIM_plot
+
+MIM_plot2 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=ASPECT_CLA)) + geom_point() +
   #scale_color_gradient2(midpoint=midp, low="blue", mid="green", high="red", space ="Lab" ) +
   #xlim(0,10) +
   #ylim(0,10) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
-  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue")
-MIM_plot
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Aspect class")
+MIM_plot2
 
+MIM_plot3 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=SLOPE)) + geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Slope") +
+  scale_color_viridis(option = "D")
+MIM_plot3
 
-####
-# MIM_plot2 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point(size=2) +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
-#   ylim(0,7)
-# MIM_plot2
-# 
-# ####
-# MIM_plot3 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=ASPECT_CLA)) + geom_point() +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
-#   ylim(0,7)
-# MIM_plot3
+MIM_plot4 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=CURVATURE)) + geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Curvature") +
+  scale_color_viridis(option = "D")
+MIM_plot4
 
-MICpool
-df <- as.data.frame(table)
-
-     
+```
