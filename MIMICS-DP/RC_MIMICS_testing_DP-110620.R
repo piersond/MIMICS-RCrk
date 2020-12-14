@@ -11,7 +11,7 @@ setwd("C:/GitHub/MIMICS-RCrk/MIMICS-DP/")
 # Gather req'd data, parameters, etc.
 ############################################################################################
 # get RXEQ ftn
-source("RXEQ_ftn.R")
+source("MIMICS_as_ftn/RXEQ_ftn.R")
 
 # get MIMICS parameters
 list.files("MIMICS_parameters")
@@ -332,10 +332,10 @@ MIMSOC_plot <- ggplot(data %>% filter(GOOGLE_DIR == "Nicholas_Patton") %>% filte
   geom_point(size=3) +
   #scale_color_gradientn(colours = rainbow(5)) +
   xlim(2,6) + #ylim(0,10) +
-  geom_abline(mapping=aes(slope=1, intercept=0), linetype="dotted") +
-  annotate("text", label = paste0("r^2 = ",r_val), x = 6, y = 8, size = 3, colour = "red") +
-  annotate("text", label = paste0("fit = ",fit,"y"), x = 6, y = 8.5, size = 3, colour = "red") +
-  annotate("text", label = paste0("1:1"), x = 8, y = 8.4, size = 3, colour = "black")
+  geom_abline(mapping=aes(slope=1, intercept=0), linetype="dotted") #+
+  #annotate("text", label = paste0("r^2 = ",r_val), x = 6, y = 8, size = 3, colour = "red") +
+  #annotate("text", label = paste0("fit = ",fit,"y"), x = 6, y = 8.5, size = 3, colour = "red") +
+  #annotate("text", label = paste0("1:1"), x = 8, y = 8.4, size = 3, colour = "black")
 MIMSOC_plot
 
 
