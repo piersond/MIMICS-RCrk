@@ -470,6 +470,31 @@ MIM_plot2 <- ggplot(data, aes(x=MIMSOC, y=SOC, color=ASPECT_CLA)) + geom_point()
   annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
   ggtitle("Color: Aspect class")
 MIM_plot2
+
+
+MIM_plot3 <- ggplot(data, aes(x=residual, y=pred_MAP, color=SLOPE)) + geom_point() +
+  #scale_color_gradient2(midpoint=midp, low="blue", mid="green", high="red", space ="Lab" ) +
+  #xlim(0,10) +
+  #ylim(0,10) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Aspect class")
+MIM_plot3
+
+MIM_plot4 <- ggplot(data, aes(x=residual, y=CLAY, color=MAT)) + geom_point() +
+  #scale_color_gradient2(low="brown", mid="yellow", high="green", 
+   #                     limits = c(0, 50), oob = scales::squish) +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("Color: Aspect class")
+MIM_plot4
+
+#export data for mapping
+#MIMtable <- as.data.frame(table)
+#colnames(MIMtable)[1] <- "Site"
+#data$Site <- as.character(data$Site)
+#export_df <- full_join(data, MIMtable)
+#write.csv(export_df, "MIMtable_eGPP_121020.csv")
+
 ```
 
 <br>
