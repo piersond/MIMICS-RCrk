@@ -1,0 +1,38 @@
+---
+title: "RCrk MIMICS: Microbial pool size"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(reshape2)
+library(scales)
+library(rootSolve)
+library(boot)
+library(viridis)
+
+options(width = 100)
+
+dir <- '/GitHub/MIMICS-RCrk/MIMICS-DP/' 
+setwd(dir)
+```
+
+***
+
+### Aiming for microbial pools to equal 1-2% of SOM stocks
+
+***
+
+#### 1. Where do we stand now in our model runs? ...as of Dec. 15, 2020 
+
+#### 2. Do we need to adjust parameters to get ideal microbial pool size? Which parameter?
+
+***

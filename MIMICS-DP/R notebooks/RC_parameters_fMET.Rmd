@@ -1,5 +1,5 @@
 ---
-title: "RCrk MIMICS: Parameter tests"
+title: "RCrk MIMICS: fMET Control"
 output:
   html_document:
     code_folding: hide
@@ -71,11 +71,15 @@ RXEQ <- function(t, y, pars) {
 
 ***
 
-#### fMET
+### fMET
 
-Stating with a test of sensivity. Model has been using the mean LiDET litter fMET (0.384). Plots below observe effect on residuals using the minimum (0.148) and maximum (0.76)values in the LiDET dataset.
+What is the influence of the fMET parameter in the MIMICS model? 
 
-```{r message=FALSE, results=FALSE}
+Thus far, I've been using the mean LiDET litter fMET value. Plots below observe effects on the model mirobial and SOC pools when using the mean (0.384), minimum (0.148) and maximum (0.76) fMET parameter values in the LiDET dataset.
+
+***
+
+```{r message=FALSE, results=FALSE, warning=FALSE, out.width = '50%'}
 #---------------------------------------------------------
 # ---- MIMICS: Mean LiDET fMET -------
 #---------------------------------------------------------
@@ -237,13 +241,21 @@ data$residual <- data$SOC-data$MIMSOC
 r2_test <- cor.test(data$SOC, data$MIMSOC)
 r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
 
-MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point() +
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP)) + geom_point() +
+  scale_color_gradient(low="blue", high="red") +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
   annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
-  ggtitle("fMET = 0.384 (LiDET mean)")
+  ggtitle("fMET = 0.384 (LiDET mean)") + 
+  xlim(0,15)
 MIM_plot
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+mean_fmet <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
 ```
-```{r message=FALSE, results=FALSE}
+```{r message=FALSE, results=FALSE, warning=FALSE, out.width = '50%'}
 #---------------------------------------------------------
 # ---- MIMICS: Min LiDET fMET -------
 #---------------------------------------------------------
@@ -405,14 +417,21 @@ data$residual <- data$SOC-data$MIMSOC
 r2_test <- cor.test(data$SOC, data$MIMSOC)
 r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
 
-MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point() +
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP)) + geom_point() +
+  scale_color_gradient(low="blue", high="red") +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
   annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
-  ggtitle("fMET = 0.148 (LiDET min)")
+  ggtitle("fMET = 0.148 (LiDET min)") + 
+  xlim(0,15)
 MIM_plot
-```
 
-```{r message=FALSE, results=FALSE}
+#save data table for use later
+colnames(table)[1] <- "Site"
+min_fmet <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+```
+```{r message=FALSE, results=FALSE, warning=FALSE, out.width = '50%'}
 #---------------------------------------------------------
 # ---- MIMICS: Max LiDET fMET -------
 #---------------------------------------------------------
@@ -574,11 +593,172 @@ data$residual <- data$SOC-data$MIMSOC
 r2_test <- cor.test(data$SOC, data$MIMSOC)
 r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
 
-MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=L1)) + geom_point() +
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP)) + geom_point() +
+  scale_color_gradient(low="blue", high="red") +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
   annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
-  ggtitle("fMET = 0.76 (LiDET max)")
+  ggtitle("fMET = 0.76 (LiDET max)") + 
+  xlim(0,15)
 MIM_plot
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+max_fmet <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+
 ```
 
+***
 
+#### Why only a minor effect on SOC estimate when changing fMET value?
+
+**- fMET controls the ratio of C passed to either the r or K microbial pools.** 
+
+**- Next, let's visualize how fMET is changing these microbial pool sizes.**
+
+***
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+min_fmet$MICr2 <- round(as.numeric(levels(min_fmet$MICr))[min_fmet$MICr],3)
+min_fmet$MICK2 <- round(as.numeric(levels(min_fmet$MICK))[min_fmet$MICK],3)
+
+#melt data
+min_fmet_melt <- min_fmet %>% gather(key = 'MIC_type', value = 'MIC_size', MICr2:MICK2)
+
+ggplot(min_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=MIC_size, fill=MIC_type)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#1f3c88", "#ee6f57"), labels=c("MIC-K","MIC-r")) + labs(fill="MIC Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("Microbial Pool Size") +
+  ggtitle("Min LiDET fMET")
+        
+```
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+mean_fmet$MICr2 <- round(as.numeric(levels(mean_fmet$MICr))[mean_fmet$MICr],3)
+mean_fmet$MICK2 <- round(as.numeric(levels(mean_fmet$MICK))[mean_fmet$MICK],3)
+
+#melt data
+mean_fmet_melt <- mean_fmet %>% gather(key = 'MIC_type', value = 'MIC_size', MICr2:MICK2)
+
+ggplot(mean_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=MIC_size, fill=MIC_type)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#1f3c88", "#ee6f57"), labels=c("MIC-K","MIC-r")) + labs(fill="MIC Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("Microbial Pool Size") +
+  ggtitle("Mean LiDET fMET")
+        
+```
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+max_fmet$MICr2 <- round(as.numeric(levels(max_fmet$MICr))[max_fmet$MICr],3)
+max_fmet$MICK2 <- round(as.numeric(levels(max_fmet$MICK))[max_fmet$MICK],3)
+
+#melt data
+max_fmet_melt <- max_fmet %>% gather(key = 'MIC_type', value = 'MIC_size', MICr2:MICK2)
+
+ggplot(max_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=MIC_size, fill=MIC_type)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#1f3c88", "#ee6f57"), labels=c("MIC-K","MIC-r")) + labs(fill="MIC Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("Microbial Pool Size") +
+  ggtitle("Max LiDET fMET")
+        
+```
+
+***
+
+#### A higher fMET sends more litter C to the r strategists. How does this effect SOM pools?
+
+***
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+min_fmet$SOMp2 <- round(as.numeric(levels(min_fmet$SOMp))[min_fmet$SOMp],3)
+min_fmet$SOMc2 <- round(as.numeric(levels(min_fmet$SOMc))[min_fmet$SOMc],3)
+min_fmet$SOMa2 <- round(as.numeric(levels(min_fmet$SOMa))[min_fmet$SOMa],3)
+
+#melt data
+min_fmet_melt <- min_fmet %>% gather(key = 'SOM_pool', value = 'SOM_size', SOMp2:SOMa2)
+
+ggplot(min_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=SOM_size, fill=SOM_pool)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#59886b", "#ffc85c", "#c05555"), labels=c("SOMa","SOMc", "SOMp")) + labs(fill="SOM Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("SOM Pool Size") +
+  ggtitle("Min LiDET fMET")
+        
+```
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+mean_fmet$SOMp2 <- round(as.numeric(levels(mean_fmet$SOMp))[mean_fmet$SOMp],3)
+mean_fmet$SOMc2 <- round(as.numeric(levels(mean_fmet$SOMc))[mean_fmet$SOMc],3)
+mean_fmet$SOMa2 <- round(as.numeric(levels(mean_fmet$SOMa))[mean_fmet$SOMa],3)
+
+#melt data
+mean_fmet_melt <- mean_fmet %>% gather(key = 'SOM_pool', value = 'SOM_size', SOMp2:SOMa2)
+
+ggplot(mean_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=SOM_size, fill=SOM_pool)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#59886b", "#ffc85c", "#c05555"), labels=c("SOMa","SOMc", "SOMp")) + labs(fill="SOM Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("SOM Pool Size") +
+  ggtitle("Mean LiDET fMET")
+        
+```
+
+```{r message=FALSE, results=FALSE, out.width = '70%', warning=FALSE}
+
+#prep data
+max_fmet$SOMp2 <- round(as.numeric(levels(max_fmet$SOMp))[max_fmet$SOMp],3)
+max_fmet$SOMc2 <- round(as.numeric(levels(max_fmet$SOMc))[max_fmet$SOMc],3)
+max_fmet$SOMa2 <- round(as.numeric(levels(max_fmet$SOMa))[max_fmet$SOMa],3)
+
+#melt data
+max_fmet_melt <- max_fmet %>% gather(key = 'SOM_pool', value = 'SOM_size', SOMp2:SOMa2)
+
+ggplot(max_fmet_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=SOM_size, fill=SOM_pool)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=20) +
+         scale_fill_manual(values=c("#59886b", "#ffc85c", "#c05555"), labels=c("SOMa","SOMc", "SOMp")) + labs(fill="SOM Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("SOM Pool Size") +
+  ggtitle("Max LiDET fMET")
+        
+```
+
+***
+
+### fMET Conclusion
+
+***
+
+#### Overall , the effect on SOM from a higher fMET value is a greater amount of physically protected SOM, coming at the expense of chemically protected SOM. The available SOM pool is largely unaffected by the fMET value. 
+
+**- fMET good to tweak for matching pool ratios in Hasini data.**
+
+**- fMET not a parameter that influences total SOC estimates.**
+
+
+</br>
