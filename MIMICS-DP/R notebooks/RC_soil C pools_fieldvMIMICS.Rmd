@@ -1,0 +1,415 @@
+---
+title: "SOM pools: Field vs. MIMICS"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+always_allow_html: true
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(readxl)
+library(leaflet)
+library(viridis)
+library(reshape)
+
+#for MIMICS
+library(rootSolve)
+library(boot)
+
+options(ggplot2.continuous.colour="viridis")
+options(ggplot2.continuous.fill = "viridis")
+options(width = 100)
+
+### Data folder
+data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC data from Marie Anne/" 
+```
+
+## Hasani Field Data: Soil C size fraction pools
+(see previous data summary notebook for more info)
+```{r warning=FALSE, message=FALSE}
+fracs <- as.data.frame(read_excel(paste0(data_path,"fractions (0-5cm).xlsx"), sheet = "data"))
+
+fracs[fracs == "no data" ] <- NA
+names(fracs)[names(fracs) == 'C%'] <- 'Cperc'
+names(fracs)[names(fracs) == 'Total Fraction.Weight (g)'] <- 'frac_mass'
+
+# plot C%
+fracs$Location <- factor(fracs$Location , levels=c("Flats", "Nancy Gulch", "Lower Sheep Creek", "Reynolds Mountain"))
+# fracs_Cby_loc <- ggplot(fracs, aes(x=Location, y=as.numeric(Cperc), fill=sediment_type)) + geom_boxplot() +
+#   xlab("Location") + ylab("Fraction C (%)") + ggtitle("Fraction C concentration") +
+#   theme(axis.text.x = element_text(angle = -60, vjust = 0.5, hjust=0)) 
+# fracs_Cby_loc
+
+#plot C content of the fractions
+fracs$Ccontent <- as.numeric(fracs$frac_mass) * as.numeric(fracs$Cperc)
+fracs_melt <- fracs %>% gather(key = 'Pool_type', value = 'Pool_C_content', sediment_type)
+
+ggplot(fracs, aes(x=Location, y=Ccontent, fill=factor(sediment_type, levels=c("fPOM","cPOM","silt","clay")))) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean") +
+         scale_fill_manual(values=c("#799351", "#adb36e", "#ff9a8c","#ea2c62"), labels=c("fPOM", "cPOM", "Silt", "Clay")) + labs(fill="Size Pool") +
+  #theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Location [Elevation increases -->]") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("Reynolds Creek soil C pool concentrations")
+
+```
+
+***
+
+#### Notes:
+
+##### 1. Size fractions don't provide POM and MAOM in the way I'm used to. POM C% are much lower than typically found when doing a density fractionation, which is more specific in seperating the lighter organic material from mineral material. How to equate between the two methods to make data comparisons with MIMICS?
+
+##### 2. Coarse POM (cPOM) may be inaccurate. Sand was included in the cPOM values at Flats and Nancy Gulch, but sand data values are missing for Lower Sheep and Reynolds Mountain. Not sure if they were negligable, or if that's an error in the data? On th eplus side, the bar totals do match closely with the bulk C% data (see the Hasini data notebook), which is a good sign that the data may be correctly shown here.   
+
+***
+
+</br>
+<br>
+
+### Ballparking pools into POM (cPOM + fPOM) and MAOM (clay +  silt)
+
+```{r warning=FALSE, message=FALSE}
+#Convert to MAOM and POM
+fracs<- fracs %>% mutate(pool_type = ifelse(sediment_type == "clay" | sediment_type == "silt", "MAOM", "POM"))
+
+ggplot(fracs, aes(x=Location, y=Ccontent, fill=factor(pool_type, levels=c("POM","MAOM")))) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean") +
+         scale_fill_manual(values=c("#799351", "#ea2c62"), labels=c("POM", "MAOM")) + labs(fill="Pool Type") +
+  #theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Location [Elevation increases -->]") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("MAOM and POM soil C pools (guesstimate from size fractions)")
+
+```
+
+***
+
+***
+
+</br>
+<br>
+
+### Pool sizes normalized by C content
+
+```{r warning=FALSE, message=FALSE}
+
+fracs_smry <- fracs %>% group_by(Location, sediment_type) %>% filter(sediment_type != "cPOM-no sand") %>% filter(sediment_type != "sand") %>%
+                summarise(Ccontent_mean = mean(Ccontent),
+                          Ccontent_se = sd(Ccontent)/sqrt(n()))
+
+fracs_smry$Ccon_norm <- ave(fracs_smry$Ccontent_mean, fracs_smry$Location, FUN=function(x) x/sum(x))
+
+ggplot(fracs_smry, aes(x=Location, y=Ccon_norm, fill=factor(sediment_type, levels=c("fPOM","cPOM","silt","clay")))) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "identity") +
+         scale_fill_manual(values=c("#799351", "#adb36e", "#ff9a8c","#ea2c62"), labels=c("fPOM", "cPOM", "Silt", "Clay")) + labs(fill="Size Pool") +
+  #theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Location [Elevation increases -->]") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("Reynolds Creek soil C pool concentrations")
+
+
+```
+
+```{r warning=FALSE, message=FALSE}
+
+fracs_smry <- fracs %>% filter(sediment_type != "cPOM-no sand") %>% filter(sediment_type != "sand") %>%
+                group_by(Location, pool_type) %>%
+                  summarise(Ccontent_mean = mean(Ccontent),
+                            Ccontent_se = sd(Ccontent)/sqrt(n()))
+
+fracs_smry$Ccon_norm <- ave(fracs_smry$Ccontent_mean, fracs_smry$Location, FUN=function(x) x/sum(x))
+
+ggplot(fracs_smry, aes(x=Location, y=Ccon_norm, fill=factor(pool_type, levels=c("POM","MAOM")))) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "identity") +
+         scale_fill_manual(values=c("#799351", "#ea2c62"), labels=c("POM", "MAOM")) + labs(fill="Pool Type") +
+  #theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Location [Elevation increases -->]") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("Reynolds Creek soil C pool concentrations")
+
+
+```
+ 
+ ***
+ 
+ ***
+
+</br>
+<br>
+
+
+## MIMICS soil C pools
+
+Running RCrk MIMICS using pGPP, mean LiDET fMET, and no fW
+
+```{r echo=FALSE, message=FALSE, results=FALSE, out.width = '80%' }
+# -----------------------------------------------------------
+# MIMICS2_RXEQ function
+# -----------------------------------------------------------
+
+#REVERSE MODEL 
+RXEQ <- function(t, y, pars) {
+  with (as.list(c(y, pars)),{
+    
+    #Flows to and from MIC_1
+    LITmin[1] = MIC_1 * VMAX[1] * LIT_1 / (KM[1] + MIC_1)   #MIC_1 decomp of MET lit
+    LITmin[2] = MIC_1 * VMAX[2] * LIT_2 / (KM[2] + MIC_1)   #MIC_1 decomp of STRUC lit
+    MICtrn[1] = MIC_1 * tau[1]  * fPHYS[1]                  #MIC_1 turnover to PHYSICAL SOM 
+    MICtrn[2] = MIC_1 * tau[1]  * fCHEM[1]                  #MIC_1 turnover to CHEMICAL SOM  
+    MICtrn[3] = MIC_1 * tau[1]  * fAVAI[1]                  #MIC_1 turnover to AVAILABLE SOM  
+    SOMmin[1] = MIC_1 * VMAX[3] * SOM_3 / (KM[3] + MIC_1)   #decomp of SOMa by MIC_1
+    
+    #Flows to and from MIC_2
+    LITmin[3] = MIC_2 * VMAX[4] * LIT_1 / (KM[4] + MIC_2)   #decomp of MET litter
+    LITmin[4] = MIC_2 * VMAX[5] * LIT_2 / (KM[5] + MIC_2)   #decomp of SRUCTURAL litter
+    MICtrn[4] = MIC_2 * tau[2]  * fPHYS[2]                  #MIC_2 turnover to PHYSICAL  SOM 
+    MICtrn[5] = MIC_2 * tau[2]  * fCHEM[2]                  #MIC_2 turnover to CHEMICAL  SOM  
+    MICtrn[6] = MIC_2 * tau[2]  * fAVAI[2]                  #MIC_2 turnover to AVAILABLE SOM  
+    SOMmin[2] = MIC_2 * VMAX[6] * SOM_3 / (KM[6] + MIC_2)   #decomp of SOMa by MIC_2
+    
+    DEsorb    = SOM_1 * desorb  #* (MIC_1 + MIC_2)  	#desorbtion of PHYS to AVAIL (function of fCLAY)
+    OXIDAT    = ((MIC_1 * VMAX[2] * SOM_2 / (KO[1]*KM[2] + MIC_1)) +
+                 (MIC_2 * VMAX[5] * SOM_2 / (KO[2]*KM[5] + MIC_2)) )  #oxidation of C to A
+
+    dLIT_1 = I[1]*(1-FI[1]) - LITmin[1] - LITmin[3]
+    dMIC_1 = CUE[1]*(LITmin[1]+ SOMmin[1]) + CUE[2]*(LITmin[2]) - sum(MICtrn[1:3])
+    dSOM_1 = I[1]*FI[1] + MICtrn[1] + MICtrn[4]- DEsorb 
+    
+    dLIT_2 = I[2] * (1-FI[2]) - LITmin[2] - LITmin[4]
+    dMIC_2 = CUE[3]*(LITmin[3]+ SOMmin[2]) + CUE[4]*(LITmin[4]) - sum(MICtrn[4:6])  
+    dSOM_2 = I[2]*FI[2] + MICtrn[2] + MICtrn[5] - OXIDAT
+    
+    dSOM_3 = MICtrn[3] + MICtrn[6] + DEsorb + OXIDAT - SOMmin[1] - SOMmin[2]
+    
+    list(c(dLIT_1, dLIT_2, dMIC_1, dMIC_2, dSOM_1, dSOM_2, dSOM_3))
+  })
+}
+
+#---------------------------------------------------------
+# ---- MIMICS: Mean LiDET fMET -------
+#---------------------------------------------------------
+
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  parameters <- read.csv(para_file)
+  names(parameters)
+  attach(parameters)
+  depth <- parameters$depth[1]
+  
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- litter[1:6,]   #subset foliar litter only 
+  attach(litter)
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+  
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  names(data)
+  attach(data)
+  
+  KO <- parameters$KO
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- (data$pGPP+400)/2
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
+  tsoi  <- MAT
+  nsites<- length(Site)
+  
+  lig    <- LIG #/ 100
+  Nnew   <- N                                                  #N in litter additions
+  fMET1  <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * lig / Nnew)   #as partitioned in Daycent
+  MIMLIT <- rep(NA, nsites)           	                       #Vector for results
+  MIMMIC <- rep(NA, nsites)           
+  MIM_CO <- rep(NA, nsites)           
+  MIMSOC <- rep(NA, nsites)           
+  
+  strSite <- as.character(data$Site)                           #convert site names to string
+  pools  <- c('site','LITm', 'LITs', 'MICr', 'MICK', 'SOMp', 'SOMc', 'SOMa')
+  table  <- array(NA, dim=c(nsites,8), dimnames=list(as.character(Site),pools)) 
+  table[,1]       <- as.character(Site)
+  
+  POOLS  <- c("LIT","MIC","SOC")
+  npools <- length(POOLS)  
+  LITpool<- c('LITm', 'LITs') 
+  MICpool<- c('MICr', 'MICk') 
+  SOMpool<- c('SOMp', 'SOMa','SOMc') 
+  
+  MIMLIT <- array(NA, dim=c(nsites))           	             # array for results
+  MIMMIC <- array(NA, dim=c(nsites))           
+  MIM_CO <- array(NA, dim=c(nsites))           
+  MIMSOC <- array(NA, dim=c(nsites))           
+  
+  strSite <- as.character(data$Site)  #convert site names to string
+  
+  #Make vectors to store model results that match obs temporal resolution
+  npts   <- 6*10*14   				#6 litter * 10 years * 14 sites
+  xyLIT  <- rep(NA, npts) 
+  xyTIME <- rep(NA, npts) 
+  xySITE <- rep(NA, npts) 
+  xyOBS  <- rep(NA, npts)
+  xyMIM  <- rep(NA, npts)
+  xyCount<- 1
+  
+  #-----------------------------------------------------------
+  # (B)       RXEQ for site using STODE function
+  # Starts Big loop over all sites (i) & all litter types (j)
+  #-----------------------------------------------------------
+  
+  for (i in 1:nsites) {         #speeds up debugging     	
+    # Read in site characteristics -----------
+    print(paste("-------- starting ", data$Site[i], " --------") )
+    
+    fMET       <- mean(lit_fMET)           # uses mean litter fmet from LIDET
+    # fMET       <- fMET1[i]                 # uses site estimate for fmet
+    fCLAY      <- clay[i]
+    TSOI       <- tsoi[i]
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
+    h2y        <- 24*365
+    MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
+    EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
+    
+    # ------------ caclulate parameters ---------------
+    Vmax     <- exp(TSOI * Vslope + Vint) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * Kslope + Kint) * aK  #dp: Kint/2
+    
+    #ANPP strongly correlated with MAP
+    Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
+    Tau_MOD2 <- Tau_MOD[4]                        # increased 3-fold for SS SOC pools
+    Tau_MOD1[Tau_MOD1 < Tau_MOD[2]] <- Tau_MOD[2] # correction not used in LIDET resutls 
+    Tau_MOD1[Tau_MOD1 > Tau_MOD[3]] <- Tau_MOD[3] 
+    tau <- c(tau_r[1]*exp(tau_r[2]*fMET), 
+             tau_K[1]*exp(tau_K[2]*fMET))   
+    tau <- tau * Tau_MOD1 * Tau_MOD2
+    
+    fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
+                  fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
+    fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
+                  fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
+    fAVAI    <- 1- (fPHYS + fCHEM)
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
+    
+    #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
+    #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
+    
+    pSCALAR  <- PHYS_scalar[1] * exp(PHYS_scalar[2]*(sqrt(fCLAY)))  #Scalar for texture effects on SOMp
+    v_MOD    <- vMOD  # to avoid writing over orig. parameters
+    k_MOD    <- kMOD 
+    k_MOD[3] <- k_MOD[3] * pSCALAR    
+    k_MOD[6] <- k_MOD[6] * pSCALAR    
+    
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
+    KM       <- Km / k_MOD
+    
+    #initialize pools
+    I       <- array(NA, dim=2)              #Litter inputs to MET/STR
+    I[1]    <- (EST_LIT / depth) * fMET     
+    I[2]    <- (EST_LIT / depth) * (1-fMET)
+    lit     <- I   
+    mic     <- I  
+    som     <- rep(NA, 3) 
+    som[1]  <- I[1]
+    som[2]  <- I[2]
+    som[3]  <- I[1] 
+    LITmin  <- rep(NA, dim=4)
+    MICtrn  <- rep(NA, dim=6)
+    SOMmin  <- rep(NA, dim=2)
+    DEsorb  <- rep(NA, dim=1)
+    OXIDAT  <- rep(NA, dim=1)
+    
+    #Calculate RXEQ pools  
+    Tpars <- c( I = I, VMAX = VMAX, KM = KM, CUE = CUE, 
+                fPHYS = fPHYS, fCHEM = fCHEM, fAVAI = fAVAI, FI = FI, 
+                tau = tau, LITmin = LITmin, SOMmin = SOMmin, MICtrn = MICtrn, 
+                desorb = desorb, DEsorb = DEsorb, OXIDAT = OXIDAT, KO = KO)
+    Ty    <- c( LIT_1 = lit[1], LIT_2 = lit[2], 
+                MIC_1 = mic[1], MIC_2 = mic[2], 
+                SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
+    test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
+    if (i == 2) {print(test[1])}
+    remove(lit, mic, som)
+  
+    table[i,2:8] <- as.numeric(test[[1]])
+    MIMLIT[i]    <- (test[[1]][[1]]+test[[1]][[2]])  * depth *1e4 / 1e6#convert kgC/m2 from mgC/cm3 (0-30 cm) 
+    MIMMIC[i]    <- (test[[1]][[3]]+test[[1]][[4]])  * depth *1e4 / 1e6
+    MIM_CO[i]    <-  test[[1]][[3]]/test[[1]][[4]]
+    MIMSOC[i]    <- sum(test[[1]])  * depth *1e4 / 1e6   
+    
+    remove(test, Ty, Tpars, LITmin, MICtrn, SOMmin)
+  
+  } # close i loop (sites)
+  
+  
+#plot results  
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+MIM_plot <- ggplot(data, aes(x=MIMSOC, y=SOC, color=pGPP)) + geom_point() +
+  scale_color_gradient(low="blue", high="red") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 4, y = 11, size = 3, colour = "dark blue") +
+  ggtitle("SOC vs MIMICS SOC estimate") + 
+  xlim(0,15)
+MIM_plot
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+MIMout <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+```
+
+
+### MIMICS Soil C pools by GPP
+
+```{r message=FALSE, results=FALSE, warning=FALSE}
+
+#prep data
+
+MIMout_pool_melt <- MIMout %>% gather(key = 'SOM_pool', value = 'SOM_size', SOMp:SOMa)
+
+str(MIMout_pool_melt)
+
+#plot MIMICS soil C pools by GPP
+ggplot(MIMout_pool_melt, aes(x=signif(pGPP+400, floor(log10(pGPP))), y=as.numeric(SOM_size), fill=SOM_pool)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=10) +
+         scale_fill_manual(values=c("#59886b", "#ffc85c", "#c05555"), labels=c("SOMa","SOMc", "SOMp")) + labs(fill="SOM Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Estimated GPP") + 
+  ylab("SOM Pool Size") +
+  ggtitle("MIMICS SOM pools by GPP")
+
+#plot MIMICS soil C pools by Elevation
+ggplot(MIMout_pool_melt, aes(x=signif(ELEVATION, floor(log10(ELEVATION))), y=as.numeric(SOM_size), fill=SOM_pool)) +
+         theme_bw() +
+         geom_bar(position="stack", stat = "summary", fun.y = "mean", width=10) +
+         scale_fill_manual(values=c("#59886b", "#ffc85c", "#c05555"), labels=c("SOMa","SOMc", "SOMp")) + labs(fill="SOM Pool") +
+  theme(axis.text.x=element_text(angle=90, hjust=0)) +
+  xlab("Elevation (m)") + 
+  ylab("SOM Pool Size") +
+  ggtitle("MIMICS SOM pools by GPP")
+
+ggplot(MIMout, aes(x=ELEVATION, y=pGPP+400, color=round(as.numeric(levels(SOMp))[SOMp],3))) + geom_point() +
+  labs(color="SOMp")
+
+
+```
+
+
+
