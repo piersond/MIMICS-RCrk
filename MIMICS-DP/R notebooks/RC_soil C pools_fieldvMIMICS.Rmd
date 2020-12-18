@@ -15,6 +15,7 @@ library(knitr)
 library(DT)
 library(gridExtra)
 library(grid)
+library(ggpubr)
 library(readxl)
 library(leaflet)
 library(viridis)
@@ -29,12 +30,12 @@ options(ggplot2.continuous.fill = "viridis")
 options(width = 100)
 
 ### Data folder
-data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC data from Marie Anne/" 
+data_path <- "C:/Users/derek/Google Drive/RCrk/RC data from Marie Anne/" 
 ```
 
 ## Hasani Field Data: Soil C size fraction pools
 (see previous data summary notebook for more info)
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, out.width = '80%' }
 fracs <- as.data.frame(read_excel(paste0(data_path,"fractions (0-5cm).xlsx"), sheet = "data"))
 
 fracs[fracs == "no data" ] <- NA
@@ -78,7 +79,7 @@ ggplot(fracs, aes(x=Location, y=Ccontent, fill=factor(sediment_type, levels=c("f
 
 ### Ballparking pools into POM (cPOM + fPOM) and MAOM (clay +  silt)
 
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, out.width = '80%' }
 #Convert to MAOM and POM
 fracs<- fracs %>% mutate(pool_type = ifelse(sediment_type == "clay" | sediment_type == "silt", "MAOM", "POM"))
 
@@ -102,7 +103,7 @@ ggplot(fracs, aes(x=Location, y=Ccontent, fill=factor(pool_type, levels=c("POM",
 
 ### Pool sizes normalized by C content
 
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, out.width = '80%' }
 
 fracs_smry <- fracs %>% group_by(Location, sediment_type) %>% filter(sediment_type != "cPOM-no sand") %>% filter(sediment_type != "sand") %>%
                 summarise(Ccontent_mean = mean(Ccontent),
@@ -122,7 +123,7 @@ ggplot(fracs_smry, aes(x=Location, y=Ccon_norm, fill=factor(sediment_type, level
 
 ```
 
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, out.width = '80%' }
 
 fracs_smry <- fracs %>% filter(sediment_type != "cPOM-no sand") %>% filter(sediment_type != "sand") %>%
                 group_by(Location, pool_type) %>%
@@ -138,7 +139,7 @@ ggplot(fracs_smry, aes(x=Location, y=Ccon_norm, fill=factor(pool_type, levels=c(
   #theme(axis.text.x=element_text(angle=90, hjust=0)) +
   xlab("Location [Elevation increases -->]") + 
   ylab("mg C g-1 bulk soil") +
-  ggtitle("Reynolds Creek soil C pool concentrations")
+  ggtitle("Reynolds Creek soil C pool concentrations (ballpark, wonky?")
 
 
 ```
@@ -405,11 +406,96 @@ ggplot(MIMout_pool_melt, aes(x=signif(ELEVATION, floor(log10(ELEVATION))), y=as.
   ylab("SOM Pool Size") +
   ggtitle("MIMICS SOM pools by GPP")
 
-ggplot(MIMout, aes(x=ELEVATION, y=pGPP+400, color=round(as.numeric(levels(SOMp))[SOMp],3))) + geom_point() +
-  labs(color="SOMp")
-
+#ggplot(MIMout, aes(x=CLAY, y=pGPP+400, color=round(as.numeric(levels(SOMp))[SOMp],3))) + geom_point() +
+#  labs(color="SOMp")
 
 ```
 
+***
 
+</br>
+<br>
+
+### MIMSOC pools normalized by C stock
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+MIMout_smry <- MIMout_pool_melt %>% group_by(Site, SOM_pool)# %>%
+                #summarise(Ccontent_mean = mean(Ccontent),
+                #          Ccontent_se = sd(Ccontent)/sqrt(n()))
+
+MIMout_smry$SOM_size <- as.numeric(MIMout_smry$SOM_size)
+
+MIMout_smry$SOM_size_norm <- ave(MIMout_smry$SOM_size, MIMout_smry$Site, FUN=function(x) x/sum(x))
+
+ggplot(MIMout_smry, aes(x=reorder(Site, pGPP+400), y=SOM_size_norm, fill=factor(SOM_pool, levels=c("SOMa", "SOMc", "SOMp")))) +  
+         theme_bw() +
+         geom_bar(position="stack", stat = "identity") +
+         scale_fill_manual(values=c("#adb36e", "#ff9a8c","#ea2c62"), labels=c("SOMa", "SOMc", "SOMp")) + labs(fill="MIMSOC Pool") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  scale_y_continuous(expand = c(0, 0)) +
+  xlab("Estimated GPP Increases -->") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("RC MIMSOC pools by SOM input quantity")
+
+ggplot(MIMout_smry, aes(x=reorder(Site, ELEVATION), y=SOM_size_norm, fill=factor(SOM_pool, levels=c("SOMa", "SOMc", "SOMp")))) +  
+         theme_bw() +
+         geom_bar(position="stack", stat = "identity") +
+         scale_fill_manual(values=c("#adb36e", "#ff9a8c","#ea2c62"), labels=c("SOMa", "SOMc", "SOMp")) + labs(fill="MIMSOC Pool") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  scale_y_continuous(expand = c(0, 0)) +
+  xlab("Elevation Increases -->") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("RC MIMSOC pools by Elevation")
+
+```
+
+</br>
+<br>
+
+##### The MIMSOC pool plot (below) by elevation is not very accurate since it does not scale the elevation values properly (i.e. there could be 2 or 200 m between each bar). **However,** it is interesting to see how the MIMICS SOM pools do not trend strongly with elevation as they do with GPP.The limited sample locations in the field data suggests more of trend, thow not a perfect one. The MIMSOC trend appears to agree well  with the general relationship between pGPP and elevation (i.e. at the lowest elevations, GPP declines, but above ~1500 m, GPP does not trend with elevation). Not a new insight by any means, but something to keep in mind.  
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+ggplot(MIMout_smry, aes(x=reorder(Site, ELEVATION), y=SOM_size_norm, fill=factor(SOM_pool, levels=c("SOMa", "SOMc", "SOMp")))) +  
+         theme_bw() +
+         geom_bar(position="stack", stat = "identity") +
+         scale_fill_manual(values=c("#adb36e", "#ff9a8c","#ea2c62"), labels=c("SOMa", "SOMc", "SOMp")) + labs(fill="MIMSOC Pool") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  scale_y_continuous(expand = c(0, 0)) +
+  xlab("Elevation Increases -->") + 
+  ylab("mg C g-1 bulk soil") +
+  ggtitle("RC MIMSOC pools")
+
+
+ggplot(MIMout_smry, aes(x=pGPP, y=ELEVATION, color=MIMSOC)) + geom_point() +
+  ggtitle("Elevation is a poor metric for modeling SOC at RCrk")
+
+```
+
+***
+
+<br>
+</br>
+
+### Plots of field SOC by different properties (for reference)
+
+```{r message=FALSE, results=FALSE, out.width = '100%' }
+SOC_GPP <- ggplot(MIMout_smry, aes(x=pGPP+400, y=SOC, color=MIMSOC)) + geom_point() +
+  ggtitle("by GPP") + theme(plot.margin = unit(c(0.8,0.8,0.8,0.8), "lines")) 
+
+SOC_ELV <- ggplot(MIMout_smry, aes(x=ELEVATION, y=SOC, color=MIMSOC)) + geom_point() +
+  ggtitle("by elevation") + theme(plot.margin = unit(c(0.8,0.8,0.8,0.8), "lines"))
+
+SOC_MAT <- ggplot(MIMout_smry, aes(x=MAT, y=SOC, color=MIMSOC)) + geom_point() +
+  ggtitle("by MAT") + theme(plot.margin = unit(c(0.8,0.8,0.8,0.8), "lines"))
+
+SOC_CLY <- ggplot(MIMout_smry, aes(x=CLAY, y=SOC, color=MIMSOC)) + geom_point() +
+  ggtitle("by clay") + theme(plot.margin = unit(c(0.8,0.8,0.8,0.8), "lines"))
+
+ggarrange(SOC_GPP, SOC_ELV, SOC_MAT, SOC_CLY,# + rremove("x.text"), 
+          #labels = c("A", "B", "C"),
+          ncol = 2, nrow = 2,
+          common.legend = TRUE, legend="right")
+
+
+```
 

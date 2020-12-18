@@ -1,9 +1,9 @@
 ---
 title: "Delvinne & de Graaff, RCrk Data Overview"
 output:
-  pdf_document: default
   html_document:
     code_folding: hide
+  pdf_document: default
 always_allow_html: true
 ---
 
@@ -25,7 +25,7 @@ options(ggplot2.continuous.fill = "viridis")
 options(width = 100)
 
 ### Data folder
-data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC data from Marie Anne/" 
+data_path <- "C:/Users/derek/Google Drive/RCrk/RC data from Marie Anne/" 
 ```
 
 ```{r message=FALSE, warning=FALSE, results='hide'}
