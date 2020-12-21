@@ -30,7 +30,7 @@ options(ggplot2.continuous.fill = "viridis")
 options(width = 100)
 
 ### Data folder
-data_path <- "C:/Users/derek/Google Drive/RCrk/RC data from Marie Anne/" 
+data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC data from Marie Anne/" 
 ```
 
 ## Hasani Field Data: Soil C size fraction pools
@@ -434,7 +434,7 @@ ggplot(MIMout_smry, aes(x=reorder(Site, pGPP+400), y=SOM_size_norm, fill=factor(
   theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
   scale_y_continuous(expand = c(0, 0)) +
   xlab("Estimated GPP Increases -->") + 
-  ylab("mg C g-1 bulk soil") +
+  ylab("Proportion of total C") +
   ggtitle("RC MIMSOC pools by SOM input quantity")
 
 ggplot(MIMout_smry, aes(x=reorder(Site, ELEVATION), y=SOM_size_norm, fill=factor(SOM_pool, levels=c("SOMa", "SOMc", "SOMp")))) +  
@@ -444,7 +444,7 @@ ggplot(MIMout_smry, aes(x=reorder(Site, ELEVATION), y=SOM_size_norm, fill=factor
   theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
   scale_y_continuous(expand = c(0, 0)) +
   xlab("Elevation Increases -->") + 
-  ylab("mg C g-1 bulk soil") +
+  ylab("Proportion of total C") +
   ggtitle("RC MIMSOC pools by Elevation")
 
 ```
@@ -462,6 +462,7 @@ ggplot(MIMout_smry, aes(x=reorder(Site, ELEVATION), y=SOM_size_norm, fill=factor
   theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
   scale_y_continuous(expand = c(0, 0)) +
   xlab("Elevation Increases -->") + 
+  ylab("Elevation (m)")
   ylab("mg C g-1 bulk soil") +
   ggtitle("RC MIMSOC pools")
 
