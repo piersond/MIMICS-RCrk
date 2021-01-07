@@ -1,5 +1,5 @@
 ---
-title: "MIMICS Fittinh"
+title: "MIMICS: ANPP Sensitivity"
 output:
   html_document:
     code_folding: hide
@@ -74,7 +74,12 @@ RXEQ <- function(t, y, pars) {
 }
 ```
 
-## MIMICS with initial parameters
+## How does shifting ANPP change MIMICS SOC estimates?
+Especially important as we're ballparking the ANPP number form the GPP estimate (pGPP). How much does it matter if we pGPP vs. pGPP/2 vs pGPP/3? etc. 
+
+<br>
+
+### MIMICS with initial parameters
 
 Using pGPP+400/2 for ANPP, mean LiDET fMET, and no fW.
 
