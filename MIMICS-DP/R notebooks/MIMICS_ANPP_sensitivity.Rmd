@@ -886,8 +886,13 @@ ggplot(MIMout, aes(x=ANPP, y=MIMSOC, color=CLAY)) + geom_point() +
   ggtitle("MIMICS estimated SOC vs estimated ANPP")
     
 
-#ggplot(MIMout, aes(x=ANPP, y=SOC, color=CLAY)) + geom_point() + 
-#  ggtitle("Field SOC stocks vs estimated ANPP")
+#ANPP vs SOC
+r2_test <- cor.test(MIMout$SOC, MIMout$pGPP)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+ggplot(MIMout, aes(x=ANPP, y=SOC, color=CLAY)) + geom_point() + 
+  ggtitle("Field SOC stocks vs estimated ANPP") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 200, y = 11, size = 3, colour = "dark blue")
 
 ```
 
