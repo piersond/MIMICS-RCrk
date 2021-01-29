@@ -1,0 +1,125 @@
+---
+title: "RCrk MIMICS: Map"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+always_allow_html: true
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(ggpubr)
+library(readxl)
+library(viridis)
+library(reshape)
+
+#for MIMICS
+library(rootSolve)
+library(boot)
+
+#for maps
+library(rgdal)
+library(leaflet)
+
+options(ggplot2.continuous.colour="viridis")
+options(ggplot2.continuous.fill = "viridis")
+options(width = 100)
+```
+
+
+```{r message=FALSE, warning=FALSE, out.width = '100%', fig.width=10, fig.height=10}
+# bring in the data
+MIMout <- read.csv("C:/Users/Derek/Desktop/MIMout_011121.csv", as.is=T)
+
+
+#create basemap
+#Bring in RC boundary
+rc_watersheds <- readOGR("C:/github/RC-som-shiny/prototype/RCproto/map/watersheds_2014.shp", layer="watersheds_2014")
+rc_watersheds <- spTransform(rc_watersheds, CRS("+proj=longlat +datum=WGS84 +no_defs"))
+
+my_map <- leaflet() %>% setView(lng = -116.78, lat = 43.17, zoom = 11) %>%   #43.12222, -116.7817
+        addProviderTiles(
+        "Esri.WorldTopoMap",
+        # give the layer a name
+        group = "Esri.WorldTopoMap"
+      ) %>%
+        addProviderTiles(
+        "OpenStreetMap",
+        # give the layer a name
+        group = "OpenStreetMap"
+      ) %>%
+        addProviderTiles(
+          "Stamen.Toner",
+          group = "Stamen.Toner"
+        ) %>%
+        addProviderTiles(
+          "Stamen.Terrain",
+          group = "Stamen.Terrain"
+        ) %>%
+        addProviderTiles(
+          "Esri.WorldStreetMap",
+          group = "Esri.WorldStreetMap"
+        ) %>%
+        addProviderTiles(
+          "Wikimedia",
+          group = "Wikimedia"
+        ) %>%
+        addProviderTiles(
+          "CartoDB.Positron",
+          group = "CartoDB.Positron"
+        ) %>%
+        addProviderTiles(
+          "Esri.WorldImagery",
+          group = "Esri.WorldImagery"
+        ) %>%
+      # add a layers control
+      addLayersControl(
+        baseGroups = c(
+          "Esri.WorldTopoMap", "OpenStreetMap", "Stamen.Toner","Stamen.Terrain", "Esri.WorldStreetMap",
+          "Wikimedia", "CartoDB.Positron", "Esri.WorldImagery"
+        ),        
+        # position it on the topleft
+        position = "topleft"
+      )  %>%
+        addPolygons(data=rc_watersheds,
+                  col = 'black',
+                  stroke = TRUE, 
+                  weight=2,
+                  opacity=1,
+                  fillColor="grey90",
+                  fillOpacity = 0.05, 
+                  smoothFactor = 2)
+
+#create map color bins
+resBins <- cut(as.numeric(as.character(MIMout$residual)), 
+                        c(-20, -2, -1, 1, 2, 5, 8), include.lowest = F,
+                        labels = c('<-2', '-2:-1', '-1:1', '1:2', '2:5', '>5'))
+
+# then assign a palette to this using colorFactor
+# in this case it goes from red for the smaller values to yellow and green
+# standard stoplight for bad, good, and best
+resCol <- colorFactor(palette = 'Spectral', MIMout$resBins)
+
+
+my_map %>% addCircleMarkers(data=MIMout, lat=~LAT, lng=~LONG, 
+             popup=~paste("Residual error:", as.character(residual), "<br>",
+                           "SOC:", as.character(SOC), "<br>",
+                           "MIMSOC:", as.character(MIMSOC), "<br>",
+                           "ANPP:", as.character(pGPP+300), "<br>",
+                           "MAT:", as.character(MAT), "<br>",
+                           "Clay:", as.character(CLAY)),
+             color = ~resCol(resBins),
+             stroke = FALSE, 
+             fillOpacity = 0.8,
+             radius=5) %>%
+           addLegend(pal = resCol, values = resBins, opacity = 1) 
+
+```
+

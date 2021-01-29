@@ -1,0 +1,1022 @@
+---
+title: "RCrk MIMICS: Tuning C transfer parameters"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+always_allow_html: true
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(readxl)
+library(leaflet)
+library(viridis)
+library(reshape)
+
+#for MIMICS
+library(rootSolve)
+library(boot)
+
+options(ggplot2.continuous.colour="viridis")
+options(ggplot2.continuous.fill = "viridis")
+options(width = 100)
+```
+
+```{r echo=FALSE, message=FALSE, results=FALSE, out.width = '80%' }
+# -----------------------------------------------------------
+# MIMICS2_RXEQ function
+# -----------------------------------------------------------
+
+#REVERSE MODEL 
+RXEQ <- function(t, y, pars) {
+  with (as.list(c(y, pars)),{
+    
+    #Flows to and from MIC_1
+    LITmin[1] = MIC_1 * VMAX[1] * LIT_1 / (KM[1] + MIC_1)   #MIC_1 decomp of MET lit
+    LITmin[2] = MIC_1 * VMAX[2] * LIT_2 / (KM[2] + MIC_1)   #MIC_1 decomp of STRUC lit
+    MICtrn[1] = MIC_1 * tau[1]  * fPHYS[1]                  #MIC_1 turnover to PHYSICAL SOM 
+    MICtrn[2] = MIC_1 * tau[1]  * fCHEM[1]                  #MIC_1 turnover to CHEMICAL SOM  
+    MICtrn[3] = MIC_1 * tau[1]  * fAVAI[1]                  #MIC_1 turnover to AVAILABLE SOM  
+    SOMmin[1] = MIC_1 * VMAX[3] * SOM_3 / (KM[3] + MIC_1)   #decomp of SOMa by MIC_1
+    
+    #Flows to and from MIC_2
+    LITmin[3] = MIC_2 * VMAX[4] * LIT_1 / (KM[4] + MIC_2)   #decomp of MET litter
+    LITmin[4] = MIC_2 * VMAX[5] * LIT_2 / (KM[5] + MIC_2)   #decomp of SRUCTURAL litter
+    MICtrn[4] = MIC_2 * tau[2]  * fPHYS[2]                  #MIC_2 turnover to PHYSICAL  SOM 
+    MICtrn[5] = MIC_2 * tau[2]  * fCHEM[2]                  #MIC_2 turnover to CHEMICAL  SOM  
+    MICtrn[6] = MIC_2 * tau[2]  * fAVAI[2]                  #MIC_2 turnover to AVAILABLE SOM  
+    SOMmin[2] = MIC_2 * VMAX[6] * SOM_3 / (KM[6] + MIC_2)   #decomp of SOMa by MIC_2
+    
+    DEsorb    = SOM_1 * desorb  #* (MIC_1 + MIC_2)  	#desorbtion of PHYS to AVAIL (function of fCLAY)
+    OXIDAT    = ((MIC_1 * VMAX[2] * SOM_2 / (KO[1]*KM[2] + MIC_1)) +
+                 (MIC_2 * VMAX[5] * SOM_2 / (KO[2]*KM[5] + MIC_2)) )  #oxidation of C to A
+
+    dLIT_1 = I[1]*(1-FI[1]) - LITmin[1] - LITmin[3]
+    dMIC_1 = CUE[1]*(LITmin[1]+ SOMmin[1]) + CUE[2]*(LITmin[2]) - sum(MICtrn[1:3])
+    dSOM_1 = I[1]*FI[1] + MICtrn[1] + MICtrn[4]- DEsorb 
+    
+    dLIT_2 = I[2] * (1-FI[2]) - LITmin[2] - LITmin[4]
+    dMIC_2 = CUE[3]*(LITmin[3]+ SOMmin[2]) + CUE[4]*(LITmin[4]) - sum(MICtrn[4:6])  
+    dSOM_2 = I[2]*FI[2] + MICtrn[2] + MICtrn[5] - OXIDAT
+    
+    dSOM_3 = MICtrn[3] + MICtrn[6] + DEsorb + OXIDAT - SOMmin[1] - SOMmin[2]
+    
+    list(c(dLIT_1, dLIT_2, dMIC_1, dMIC_2, dSOM_1, dSOM_2, dSOM_3))
+  })
+}
+```
+
+
+## Adjusting soil temperature by aspect
+
+MAT reduced by half on North, Northeast and Northwest slopes
+
+Parameter values that differ from default:
+
+- Divided CUE by 2
+
+- Divided Tau by 50, then * sqrt(ANPP)  [*replaces Tau-mod code]
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+## Starting parameters
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  parameters <- read.csv(para_file)
+  names(parameters)
+  attach(parameters)
+  depth <- parameters$depth[1]
+  
+  CUE
+  
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- litter[1:6,]   #subset foliar litter only 
+  attach(litter)
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+  
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  
+  #filter data points
+  #data <- data %>% filter(SOC < 7.5)
+  
+  names(data)
+  attach(data)
+  
+  KO <- parameters$KO
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- (data$pGPP+300)/2
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
+  tsoi  <- MAT
+  nsites<- length(Site)
+  
+  lig    <- LIG #/ 100
+  Nnew   <- N                                                  #N in litter additions
+  fMET1  <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * lig / Nnew)   #as partitioned in Daycent
+  MIMLIT <- rep(NA, nsites)           	                       #Vector for results
+  MIMMIC <- rep(NA, nsites)           
+  MIM_CO <- rep(NA, nsites)           
+  MIMSOC <- rep(NA, nsites)           
+  
+  strSite <- as.character(data$Site)                           #convert site names to string
+  pools  <- c('site','LITm', 'LITs', 'MICr', 'MICK', 'SOMp', 'SOMc', 'SOMa')
+  table  <- array(NA, dim=c(nsites,8), dimnames=list(as.character(Site),pools)) 
+  table[,1]       <- as.character(Site)
+  
+  POOLS  <- c("LIT","MIC","SOC")
+  npools <- length(POOLS)  
+  LITpool<- c('LITm', 'LITs') 
+  MICpool<- c('MICr', 'MICk') 
+  SOMpool<- c('SOMp', 'SOMa','SOMc') 
+  
+  MIMLIT <- array(NA, dim=c(nsites))           	             # array for results
+  MIMMIC <- array(NA, dim=c(nsites))           
+  MIM_CO <- array(NA, dim=c(nsites))           
+  MIMSOC <- array(NA, dim=c(nsites))           
+  
+  strSite <- as.character(data$Site)  #convert site names to string
+  
+  #Make vectors to store model results that match obs temporal resolution
+  npts   <- 6*10*14   				#6 litter * 10 years * 14 sites
+  xyLIT  <- rep(NA, npts) 
+  xyTIME <- rep(NA, npts) 
+  xySITE <- rep(NA, npts) 
+  xyOBS  <- rep(NA, npts)
+  xyMIM  <- rep(NA, npts)
+  xyCount<- 1
+  
+  #DP cut CUE in half
+  #CUE <- CUE/2
+  
+  
+  #-----------------------------------------------------------
+  # (B)       RXEQ for site using STODE function
+  # Starts Big loop over all sites (i) & all litter types (j)
+  #-----------------------------------------------------------
+  
+  for (i in 1:nsites) {         #speeds up debugging     	
+    # Read in site characteristics -----------
+    print(paste("-------- starting ", data$Site[i], " --------") )
+    
+    fMET       <- mean(lit_fMET)        # uses mean litter fmet from LIDET
+    # fMET       <- fMET1[i]                 # uses site estimate for fmet
+    fCLAY      <- clay[i]
+    TSOI       <- tsoi[i]
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
+    h2y        <- 24*365
+    MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
+    EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
+    
+    # ------------ caclulate parameters ---------------
+    Vmax     <- exp(TSOI * Vslope + Vint) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * Kslope + Kint) * aK  #dp: Kint/2
+    
+    #ANPP strongly correlated with MAP
+    Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
+    Tau_MOD2 <- Tau_MOD[4]                        # increased 3-fold for SS SOC pools
+    Tau_MOD1[Tau_MOD1 < Tau_MOD[2]] <- Tau_MOD[2] # correction not used in LIDET resutls 
+    Tau_MOD1[Tau_MOD1 > Tau_MOD[3]] <- Tau_MOD[3] 
+    tau <- c(tau_r[1]*exp(tau_r[2]*fMET), 
+             tau_K[1]*exp(tau_K[2]*fMET))   
+
+  #DP reduce Tau across the board
+    #tau <- tau / 50 #DP modify Tau
+        
+  #DP alter Tau_mod scaler to increase Tau with increasing ANPP
+    tau <- tau * Tau_MOD1 * Tau_MOD2
+    #tau <- tau * sqrt(ANPP[i])
+    
+    
+    fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
+                  fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
+    fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
+                  fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
+    fAVAI    <- 1- (fPHYS + fCHEM)
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
+    
+    #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
+    #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
+    
+    pSCALAR  <- PHYS_scalar[1] * exp(PHYS_scalar[2]*(sqrt(fCLAY)))  #Scalar for texture effects on SOMp
+    v_MOD    <- vMOD  # to avoid writing over orig. parameters
+    k_MOD    <- kMOD 
+    k_MOD[3] <- k_MOD[3] * pSCALAR    
+    k_MOD[6] <- k_MOD[6] * pSCALAR    
+    
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
+    KM       <- Km / k_MOD
+    
+    #initialize pools
+    I       <- array(NA, dim=2)              #Litter inputs to MET/STR
+    I[1]    <- (EST_LIT / depth) * fMET     
+    I[2]    <- (EST_LIT / depth) * (1-fMET)
+    lit     <- I   
+    mic     <- I  
+    som     <- rep(NA, 3) 
+    som[1]  <- I[1]
+    som[2]  <- I[2]
+    som[3]  <- I[1] 
+    LITmin  <- rep(NA, dim=4)
+    MICtrn  <- rep(NA, dim=6)
+    SOMmin  <- rep(NA, dim=2)
+    DEsorb  <- rep(NA, dim=1)
+    OXIDAT  <- rep(NA, dim=1)
+    
+    #Calculate RXEQ pools  
+    Tpars <- c( I = I, VMAX = VMAX, KM = KM, CUE = CUE, 
+                fPHYS = fPHYS, fCHEM = fCHEM, fAVAI = fAVAI, FI = FI, 
+                tau = tau, LITmin = LITmin, SOMmin = SOMmin, MICtrn = MICtrn, 
+                desorb = desorb, DEsorb = DEsorb, OXIDAT = OXIDAT, KO = KO)
+    Ty    <- c( LIT_1 = lit[1], LIT_2 = lit[2], 
+                MIC_1 = mic[1], MIC_2 = mic[2], 
+                SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
+    test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
+    if (i == 2) {print(test[1])}
+    remove(lit, mic, som)
+  
+    table[i,2:8] <- as.numeric(test[[1]])
+    MIMLIT[i]    <- (test[[1]][[1]]+test[[1]][[2]])  * depth *1e4 / 1e6#convert kgC/m2 from mgC/cm3 (0-30 cm) 
+    MIMMIC[i]    <- (test[[1]][[3]]+test[[1]][[4]])  * depth *1e4 / 1e6
+    MIM_CO[i]    <-  test[[1]][[3]]/test[[1]][[4]]
+    MIMSOC[i]    <- sum(test[[1]])  * depth *1e4 / 1e6   
+    
+    remove(test, Ty, Tpars, LITmin, MICtrn, SOMmin)
+  
+  } # close i loop (sites)
+  
+  
+#plot results  
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+data$TSOIL <- tsoi
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+#store data
+plot1_df <- data
+
+MIM_plot <- ggplot(plot1_df, aes(x=MIMSOC, y=SOC, color=TSOIL)) + geom_point() +
+  scale_color_gradient(low="blue", high="red") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 2, y = 10, size = 3, colour = "dark blue") +
+  ggtitle("Using Kormos MAT") +
+  xlim(0,8) #+ 
+  #xlim(0,15)
+#MIM_plot
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+MIMout <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+
+```
+
+```{r}
+#remove attachments from previous MIMICS run
+rm(list=setdiff(ls(), c("MIM_plot", "RXEQ", "plot1_df", "MIMout")))
+```
+
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+## Starting parameters
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  parameters <- read.csv(para_file)
+  names(parameters)
+  attach(parameters)
+  depth <- parameters$depth[1]
+  
+  CUE
+  
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- litter[1:6,]   #subset foliar litter only 
+  attach(litter)
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+  
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  
+  #filter data points
+  #data <- data %>% filter(SOC < 7.5)
+  
+  names(data)
+  attach(data)
+  
+  KO <- parameters$KO
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- (data$pGPP+300)/2
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
+  tsoi  <- MAT #*((1-fW)+0.5)
+  
+  #ballpark adjust tsoi by aspect
+  tsoi <- ifelse(ASPECT_CLA == "North", tsoi/2, tsoi)
+  tsoi <- ifelse(ASPECT_CLA == "Northwest", tsoi/2, tsoi) 
+  tsoi <- ifelse(ASPECT_CLA == "Northeast", tsoi/2, tsoi) 
+  
+  nsites<- length(Site)
+  
+  lig    <- LIG #/ 100
+  Nnew   <- N                                                  #N in litter additions
+  fMET1  <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * lig / Nnew)   #as partitioned in Daycent
+  MIMLIT <- rep(NA, nsites)           	                       #Vector for results
+  MIMMIC <- rep(NA, nsites)           
+  MIM_CO <- rep(NA, nsites)           
+  MIMSOC <- rep(NA, nsites)           
+  
+  strSite <- as.character(data$Site)                           #convert site names to string
+  pools  <- c('site','LITm', 'LITs', 'MICr', 'MICK', 'SOMp', 'SOMc', 'SOMa')
+  table  <- array(NA, dim=c(nsites,8), dimnames=list(as.character(Site),pools)) 
+  table[,1]       <- as.character(Site)
+  
+  POOLS  <- c("LIT","MIC","SOC")
+  npools <- length(POOLS)  
+  LITpool<- c('LITm', 'LITs') 
+  MICpool<- c('MICr', 'MICk') 
+  SOMpool<- c('SOMp', 'SOMa','SOMc') 
+  
+  MIMLIT <- array(NA, dim=c(nsites))           	             # array for results
+  MIMMIC <- array(NA, dim=c(nsites))           
+  MIM_CO <- array(NA, dim=c(nsites))           
+  MIMSOC <- array(NA, dim=c(nsites))           
+  
+  strSite <- as.character(data$Site)  #convert site names to string
+  
+  #Make vectors to store model results that match obs temporal resolution
+  npts   <- 6*10*14   				#6 litter * 10 years * 14 sites
+  xyLIT  <- rep(NA, npts) 
+  xyTIME <- rep(NA, npts) 
+  xySITE <- rep(NA, npts) 
+  xyOBS  <- rep(NA, npts)
+  xyMIM  <- rep(NA, npts)
+  xyCount<- 1
+  
+  #DP cut CUE in half
+  #CUE <- CUE/2
+  
+  
+  #-----------------------------------------------------------
+  # (B)       RXEQ for site using STODE function
+  # Starts Big loop over all sites (i) & all litter types (j)
+  #-----------------------------------------------------------
+  
+  for (i in 1:nsites) {         #speeds up debugging     	
+    # Read in site characteristics -----------
+    print(paste("-------- starting ", data$Site[i], " --------") )
+    
+    fMET       <- mean(lit_fMET)        # uses mean litter fmet from LIDET
+    # fMET       <- fMET1[i]                 # uses site estimate for fmet
+    fCLAY      <- clay[i]
+    TSOI       <- tsoi[i]
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
+    h2y        <- 24*365
+    MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
+    EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
+    
+    # ------------ caclulate parameters ---------------
+    Vmax     <- exp(TSOI * Vslope + Vint) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * Kslope + Kint) * aK  #dp: Kint/2
+    
+    #ANPP strongly correlated with MAP
+    Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
+    Tau_MOD2 <- Tau_MOD[4]                        # increased 3-fold for SS SOC pools
+    Tau_MOD1[Tau_MOD1 < Tau_MOD[2]] <- Tau_MOD[2] # correction not used in LIDET resutls 
+    Tau_MOD1[Tau_MOD1 > Tau_MOD[3]] <- Tau_MOD[3] 
+    tau <- c(tau_r[1]*exp(tau_r[2]*fMET), 
+             tau_K[1]*exp(tau_K[2]*fMET))   
+
+  #DP reduce Tau across the board
+    #tau <- tau / 50 #DP modify Tau
+        
+  #DP alter Tau_mod scaler to increase Tau with increasing ANPP
+    tau <- tau * Tau_MOD1 * Tau_MOD2
+    #tau <- tau * sqrt(ANPP[i])
+    
+    
+    fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
+                  fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
+    fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
+                  fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
+    fAVAI    <- 1- (fPHYS + fCHEM)
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
+    
+    #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
+    #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
+    
+    pSCALAR  <- PHYS_scalar[1] * exp(PHYS_scalar[2]*(sqrt(fCLAY)))  #Scalar for texture effects on SOMp
+    v_MOD    <- vMOD  # to avoid writing over orig. parameters
+    k_MOD    <- kMOD 
+    k_MOD[3] <- k_MOD[3] * pSCALAR    
+    k_MOD[6] <- k_MOD[6] * pSCALAR    
+    
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
+    KM       <- Km / k_MOD
+    
+    #initialize pools
+    I       <- array(NA, dim=2)              #Litter inputs to MET/STR
+    I[1]    <- (EST_LIT / depth) * fMET     
+    I[2]    <- (EST_LIT / depth) * (1-fMET)
+    lit     <- I   
+    mic     <- I  
+    som     <- rep(NA, 3) 
+    som[1]  <- I[1]
+    som[2]  <- I[2]
+    som[3]  <- I[1] 
+    LITmin  <- rep(NA, dim=4)
+    MICtrn  <- rep(NA, dim=6)
+    SOMmin  <- rep(NA, dim=2)
+    DEsorb  <- rep(NA, dim=1)
+    OXIDAT  <- rep(NA, dim=1)
+    
+    #Calculate RXEQ pools  
+    Tpars <- c( I = I, VMAX = VMAX, KM = KM, CUE = CUE, 
+                fPHYS = fPHYS, fCHEM = fCHEM, fAVAI = fAVAI, FI = FI, 
+                tau = tau, LITmin = LITmin, SOMmin = SOMmin, MICtrn = MICtrn, 
+                desorb = desorb, DEsorb = DEsorb, OXIDAT = OXIDAT, KO = KO)
+    Ty    <- c( LIT_1 = lit[1], LIT_2 = lit[2], 
+                MIC_1 = mic[1], MIC_2 = mic[2], 
+                SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
+    test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
+    if (i == 2) {print(test[1])}
+    remove(lit, mic, som)
+  
+    table[i,2:8] <- as.numeric(test[[1]])
+    MIMLIT[i]    <- (test[[1]][[1]]+test[[1]][[2]])  * depth *1e4 / 1e6#convert kgC/m2 from mgC/cm3 (0-30 cm) 
+    MIMMIC[i]    <- (test[[1]][[3]]+test[[1]][[4]])  * depth *1e4 / 1e6
+    MIM_CO[i]    <-  test[[1]][[3]]/test[[1]][[4]]
+    MIMSOC[i]    <- sum(test[[1]])  * depth *1e4 / 1e6   
+    
+    remove(test, Ty, Tpars, LITmin, MICtrn, SOMmin)
+  
+  } # close i loop (sites)
+  
+  
+#plot results  
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+data$TSOIL <- tsoi
+#data$TSOIL_fW <- MAT*((1-fW)+0.5)
+data$TDIFF <- data$MAT - data$TSOIL
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+#store data
+plot2_df <- data
+
+MIM_plot_Nasp50 <- ggplot(plot2_df, aes(x=MIMSOC, y=SOC, color=-TDIFF)) + geom_point() +
+  scale_color_gradient(low="black", high="light blue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 2, y = 10, size = 3, colour = "dark blue") +
+  ggtitle("MAT/2 for northern aspects") +
+  xlim(0,8)  #+ 
+  #xlim(0,15)
+
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+MIMout2 <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+
+```
+
+```{r}
+grid.arrange(
+  MIM_plot,
+  MIM_plot_Nasp50,
+  nrow = 1,
+  top = "SOC vs MIMSOC",
+  bottom = textGrob(
+    "Default parameters",
+    gp = gpar(fontface = 3, fontsize = 9),
+    hjust = 0.8,
+    x = 0.95
+  )
+)
+
+```
+
+<br>
+
+***
+
+### Adjustments:
+
+- tau <- (tau/50) * sqrt(ANPP[i])
+
+- Vint * 0.9
+
+- tsoi for the N aspects cut by 66%
+
+- tsoi for NE and NW aspects cut by 50%
+
+
+```{r}
+#remove attachments from previous MIMICS run
+rm(list=setdiff(ls(), c("RXEQ", "MIM_plot", "MIM_plot_Nasp50", "plot1_df", "MIMout", "plot2_df", "MIMout2")))
+```
+
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+## Starting parameters
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  parameters <- read.csv(para_file)
+  names(parameters)
+  attach(parameters)
+  depth <- parameters$depth[1]
+  
+  CUE
+  
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- litter[1:6,]   #subset foliar litter only 
+  attach(litter)
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+  
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  
+  #filter data points
+  #data <- data %>% filter(SOC < 7.5)
+  
+  names(data)
+  attach(data)
+  
+  KO <- parameters$KO
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- (data$pGPP+300)/2
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
+  tsoi  <- MAT #*((1-fW)+0.5)
+  
+  #ballpark adjust tsoi by aspect
+  tsoi <- ifelse(ASPECT_CLA == "North", tsoi/3, tsoi)
+  tsoi <- ifelse(ASPECT_CLA == "Northwest", tsoi/2, tsoi) 
+  tsoi <- ifelse(ASPECT_CLA == "Northeast", tsoi/2, tsoi) 
+ 
+    tsoi <- ifelse(ASPECT_CLA == "South", tsoi/1, tsoi)
+  tsoi <- ifelse(ASPECT_CLA == "Southwest", tsoi/1, tsoi) 
+  tsoi <- ifelse(ASPECT_CLA == "Southeast", tsoi/1, tsoi) 
+  
+   
+  nsites<- length(Site)
+  
+  lig    <- LIG #/ 100
+  Nnew   <- N                                                  #N in litter additions
+  fMET1  <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * lig / Nnew)   #as partitioned in Daycent
+  MIMLIT <- rep(NA, nsites)           	                       #Vector for results
+  MIMMIC <- rep(NA, nsites)           
+  MIM_CO <- rep(NA, nsites)           
+  MIMSOC <- rep(NA, nsites)           
+  
+  strSite <- as.character(data$Site)                           #convert site names to string
+  pools  <- c('site','LITm', 'LITs', 'MICr', 'MICK', 'SOMp', 'SOMc', 'SOMa')
+  table  <- array(NA, dim=c(nsites,8), dimnames=list(as.character(Site),pools)) 
+  table[,1]       <- as.character(Site)
+  
+  POOLS  <- c("LIT","MIC","SOC")
+  npools <- length(POOLS)  
+  LITpool<- c('LITm', 'LITs') 
+  MICpool<- c('MICr', 'MICk') 
+  SOMpool<- c('SOMp', 'SOMa','SOMc') 
+  
+  MIMLIT <- array(NA, dim=c(nsites))           	             # array for results
+  MIMMIC <- array(NA, dim=c(nsites))           
+  MIM_CO <- array(NA, dim=c(nsites))           
+  MIMSOC <- array(NA, dim=c(nsites))           
+  
+  strSite <- as.character(data$Site)  #convert site names to string
+  
+  #Make vectors to store model results that match obs temporal resolution
+  npts   <- 6*10*14   				#6 litter * 10 years * 14 sites
+  xyLIT  <- rep(NA, npts) 
+  xyTIME <- rep(NA, npts) 
+  xySITE <- rep(NA, npts) 
+  xyOBS  <- rep(NA, npts)
+  xyMIM  <- rep(NA, npts)
+  xyCount<- 1
+  
+  #DP cut CUE in half
+  #CUE <- CUE/2
+  
+  
+  #-----------------------------------------------------------
+  # (B)       RXEQ for site using STODE function
+  # Starts Big loop over all sites (i) & all litter types (j)
+  #-----------------------------------------------------------
+  
+  for (i in 1:nsites) {         #speeds up debugging     	
+    # Read in site characteristics -----------
+    print(paste("-------- starting ", data$Site[i], " --------") )
+    
+    fMET       <- mean(lit_fMET)        # uses mean litter fmet from LIDET
+    # fMET       <- fMET1[i]                 # uses site estimate for fmet
+    fCLAY      <- clay[i]
+    TSOI       <- tsoi[i]
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
+    h2y        <- 24*365
+    MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
+    EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
+    
+    # ------------ caclulate parameters ---------------
+    Vmax     <- exp(TSOI * (Vslope*1) + (Vint*.9)) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * (Kslope*1) + Kint) * aK  #dp: Kint/2
+    
+    #ANPP strongly correlated with MAP
+    Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
+    Tau_MOD2 <- Tau_MOD[4]                        # increased 3-fold for SS SOC pools
+    Tau_MOD1[Tau_MOD1 < Tau_MOD[2]] <- Tau_MOD[2] # correction not used in LIDET resutls 
+    Tau_MOD1[Tau_MOD1 > Tau_MOD[3]] <- Tau_MOD[3] 
+    tau <- c(tau_r[1]*exp(tau_r[2]*fMET), 
+             tau_K[1]*exp(tau_K[2]*fMET))   
+        
+  #DP alter Tau_mod scaler to increase Tau with increasing ANPP
+    #tau <- tau * Tau_MOD1 * Tau_MOD2
+    tau <- (tau/50) * sqrt(ANPP[i])
+    
+    
+    fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
+                  fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
+    fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
+                  fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
+    fAVAI    <- 1- (fPHYS + fCHEM)
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
+    
+    #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
+    #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
+    
+    pSCALAR  <- PHYS_scalar[1] * exp(PHYS_scalar[2]*(sqrt(fCLAY)))  #Scalar for texture effects on SOMp
+    v_MOD    <- vMOD  # to avoid writing over orig. parameters
+    k_MOD    <- kMOD 
+    k_MOD[3] <- k_MOD[3] * pSCALAR    
+    k_MOD[6] <- k_MOD[6] * pSCALAR    
+    
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
+    KM       <- Km / k_MOD
+    
+    #initialize pools
+    I       <- array(NA, dim=2)              #Litter inputs to MET/STR
+    I[1]    <- (EST_LIT / depth) * fMET     
+    I[2]    <- (EST_LIT / depth) * (1-fMET)
+    lit     <- I   
+    mic     <- I  
+    som     <- rep(NA, 3) 
+    som[1]  <- I[1]
+    som[2]  <- I[2]
+    som[3]  <- I[1] 
+    LITmin  <- rep(NA, dim=4)
+    MICtrn  <- rep(NA, dim=6)
+    SOMmin  <- rep(NA, dim=2)
+    DEsorb  <- rep(NA, dim=1)
+    OXIDAT  <- rep(NA, dim=1)
+    
+    #Calculate RXEQ pools  
+    Tpars <- c( I = I, VMAX = VMAX, KM = KM, CUE = CUE, 
+                fPHYS = fPHYS, fCHEM = fCHEM, fAVAI = fAVAI, FI = FI, 
+                tau = tau, LITmin = LITmin, SOMmin = SOMmin, MICtrn = MICtrn, 
+                desorb = desorb, DEsorb = DEsorb, OXIDAT = OXIDAT, KO = KO)
+    Ty    <- c( LIT_1 = lit[1], LIT_2 = lit[2], 
+                MIC_1 = mic[1], MIC_2 = mic[2], 
+                SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
+    test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
+    if (i == 2) {print(test[1])}
+    remove(lit, mic, som)
+  
+    table[i,2:8] <- as.numeric(test[[1]])
+    MIMLIT[i]    <- (test[[1]][[1]]+test[[1]][[2]])  * depth *1e4 / 1e6#convert kgC/m2 from mgC/cm3 (0-30 cm) 
+    MIMMIC[i]    <- (test[[1]][[3]]+test[[1]][[4]])  * depth *1e4 / 1e6
+    MIM_CO[i]    <-  test[[1]][[3]]/test[[1]][[4]]
+    MIMSOC[i]    <- sum(test[[1]])  * depth *1e4 / 1e6   
+    
+    remove(test, Ty, Tpars, LITmin, MICtrn, SOMmin)
+  
+  } # close i loop (sites)
+  
+  
+#plot results  
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+data$TSOIL <- tsoi
+#data$TSOIL_fW <- MAT*((1-fW)+0.5)
+data$TDIFF <- data$MAT - data$TSOIL
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+#store data
+plot3_df <- data
+
+MIM_plot_vSlp150 <- ggplot(plot3_df, aes(x=MIMSOC, y=SOC, color=-TDIFF)) + geom_point() +
+  scale_color_gradient(low="black", high="light blue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 2, y = 10, size = 3, colour = "dark blue") +
+  ggtitle("Adjusted MAT by aspect, ANPP-Tau") +
+  xlim(0,8)  #+ 
+  #xlim(0,15)
+
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+MIMout3 <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+
+```
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+grid.arrange(
+  MIM_plot,
+  MIM_plot_vSlp150,
+  nrow = 1,
+  top = "SOC vs MIMSOC",
+  bottom = textGrob(
+    "Default parameters",
+    gp = gpar(fontface = 3, fontsize = 9),
+    hjust = 0.8,
+    x = 0.95
+  )
+)
+
+```
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+ggplot(MIMout3, aes(y=MIMSOC, x=as.numeric(as.character(MICr))+as.numeric(as.character(MICK)))) + geom_point() +
+  xlab("MICr + MICK") +
+  ggtitle("MIC pool way too big, Tau too small") +
+  geom_abline(intercept = 0, slope = 1/0.01, linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 1/0.02, linetype = "dashed") #+
+  #geom_abline(intercept = 0, slope = 1/0.1, linetype = "dashed", color='red')
+
+```
+
+<br>
+
+***
+
+### Alternate adjustments
+
+- CUE cut by 30%
+
+- tau <- tau * sqrt(ANPP[i]) / 8
+
+- Vslope * 1.5
+
+- Vint * 1.18
+
+- Kint * 1.1
+
+```{r}
+#remove attachments from previous MIMICS run
+rm(list=setdiff(ls(), c("RXEQ", "MIM_plot"))) #, "MIM_plot_Nasp50", "plot1_df", "MIMout", "plot2_df", "MIMout2")))
+```
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+## Starting parameters
+  para_file <- paste("C:/GitHub/MIMICS-RCrk/MIMICS-DP/MIMICS_parameters/parameters_LIDET-MIM-REV.csv", sep = "") 
+  parameters <- read.csv(para_file)
+  names(parameters)
+  attach(parameters)
+  depth <- parameters$depth[1]
+  
+  CUE
+  
+  litter <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Litter_Characteristics/LIDET_LitterCharacteristics.csv")
+  litter <- litter[1:6,]   #subset foliar litter only 
+  attach(litter)
+  calcN    <- (1 / litCN) / 2.5 * 100    
+  lit_fMET <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * litLIG / calcN)   
+  
+  data <- read.csv("C:/GitHub/MIMICS-RCrk/MIMICS-DP/Site_data/MIMICS_pts_pMAP_fW_112320.csv") #site level forcing variables
+  
+  #filter data points
+  #data <- data %>% filter(SOC < 7.5)
+  
+  names(data)
+  attach(data)
+  
+  KO <- parameters$KO
+  #ANPP  <- data$ANPP / 2           		# if needed convert to gC/m2/y from g/m2/y
+  ANPP  <- (data$pGPP+300)/2
+  clay  <- data$CLAY/100  				    # if needed, convert from % clay to fraction
+  tsoi  <- MAT #*((1-fW)+0.5)
+  
+  #ballpark adjust tsoi by aspect
+  tsoi <- ifelse(ASPECT_CLA == "North", tsoi/2, tsoi)
+  tsoi <- ifelse(ASPECT_CLA == "Northwest", tsoi/1.5, tsoi) 
+  tsoi <- ifelse(ASPECT_CLA == "Northeast", tsoi/1.5, tsoi) 
+ 
+  tsoi <- ifelse(ASPECT_CLA == "South", tsoi*1, tsoi)
+  tsoi <- ifelse(ASPECT_CLA == "Southwest", tsoi*1, tsoi) 
+  tsoi <- ifelse(ASPECT_CLA == "Southeast", tsoi*1, tsoi) 
+  
+   
+  nsites<- length(Site)
+  
+  lig    <- LIG #/ 100
+  Nnew   <- N                                                  #N in litter additions
+  fMET1  <- fmet_p[1] * (fmet_p[2] - fmet_p[3] * lig / Nnew)   #as partitioned in Daycent
+  MIMLIT <- rep(NA, nsites)           	                       #Vector for results
+  MIMMIC <- rep(NA, nsites)           
+  MIM_CO <- rep(NA, nsites)           
+  MIMSOC <- rep(NA, nsites)           
+  
+  strSite <- as.character(data$Site)                           #convert site names to string
+  pools  <- c('site','LITm', 'LITs', 'MICr', 'MICK', 'SOMp', 'SOMc', 'SOMa')
+  table  <- array(NA, dim=c(nsites,8), dimnames=list(as.character(Site),pools)) 
+  table[,1]       <- as.character(Site)
+  
+  POOLS  <- c("LIT","MIC","SOC")
+  npools <- length(POOLS)  
+  LITpool<- c('LITm', 'LITs') 
+  MICpool<- c('MICr', 'MICk') 
+  SOMpool<- c('SOMp', 'SOMa','SOMc') 
+  
+  MIMLIT <- array(NA, dim=c(nsites))           	             # array for results
+  MIMMIC <- array(NA, dim=c(nsites))           
+  MIM_CO <- array(NA, dim=c(nsites))           
+  MIMSOC <- array(NA, dim=c(nsites))           
+  
+  strSite <- as.character(data$Site)  #convert site names to string
+  
+  #Make vectors to store model results that match obs temporal resolution
+  npts   <- 6*10*14   				#6 litter * 10 years * 14 sites
+  xyLIT  <- rep(NA, npts) 
+  xyTIME <- rep(NA, npts) 
+  xySITE <- rep(NA, npts) 
+  xyOBS  <- rep(NA, npts)
+  xyMIM  <- rep(NA, npts)
+  xyCount<- 1
+  
+  #DP cut CUE in half
+  CUE <- CUE*0.7
+  
+  
+  #-----------------------------------------------------------
+  # (B)       RXEQ for site using STODE function
+  # Starts Big loop over all sites (i) & all litter types (j)
+  #-----------------------------------------------------------
+  
+  for (i in 1:nsites) {         #speeds up debugging     	
+    # Read in site characteristics -----------
+    print(paste("-------- starting ", data$Site[i], " --------") )
+    
+    fMET       <- mean(lit_fMET)        # uses mean litter fmet from LIDET
+    # fMET       <- fMET1[i]                 # uses site estimate for fmet
+    fCLAY      <- clay[i]
+    TSOI       <- tsoi[i]
+    FW         <- fW[i]                #<-- DPierson added fW
+    EST_LIT_in <- (ANPP[i] / (365*24))        # gC/m2/h (from gC/m2/y)
+    h2y        <- 24*365
+    MICROtoECO <- depth * 1e4 * 1e-3         # mgC/cm3 to g/m2
+    EST_LIT    <- EST_LIT_in  * 1e3 / 1e4    # mgC/cm2/h(from gC/m2/h) 
+    
+    # ------------ caclulate parameters ---------------
+    Vmax     <- exp(TSOI * (Vslope*1.5) + (Vint*1.15)) * aV  #dp: Vint*2
+    Km       <- exp(TSOI * (Kslope*1) + Kint*1.1) * aK  #dp: Kint/2
+    
+    #ANPP strongly correlated with MAP
+    Tau_MOD1 <- sqrt(ANPP[i]/Tau_MOD[1])          # basicaily standardize against NWT
+    Tau_MOD2 <- Tau_MOD[4]                        # increased 3-fold for SS SOC pools
+    Tau_MOD1[Tau_MOD1 < Tau_MOD[2]] <- Tau_MOD[2] # correction not used in LIDET resutls 
+    Tau_MOD1[Tau_MOD1 > Tau_MOD[3]] <- Tau_MOD[3] 
+    tau <- c(tau_r[1]*exp(tau_r[2]*fMET), 
+             tau_K[1]*exp(tau_K[2]*fMET))   
+        
+  #DP alter Tau_mod scaler to increase Tau with increasing ANPP
+    #tau <- tau * Tau_MOD1 * Tau_MOD2*1#* sqrt(ANPP[i])
+    tau <- tau * sqrt(ANPP[i]) / 8
+    
+    
+    fPHYS    <- c(fPHYS_r[1] * exp(fPHYS_r[2]*fCLAY), 
+                  fPHYS_K[1] * exp(fPHYS_K[2]*fCLAY)) 	            #fraction to SOMp
+    fCHEM    <- c(fCHEM_r[1] * exp(fCHEM_r[2]*fMET) * fCHEM_r[3], 
+                  fCHEM_K[1] * exp(fCHEM_K[2]*fMET) * fCHEM_K[3]) 	#fraction to SOMc
+    fAVAI    <- 1- (fPHYS + fCHEM)
+    desorb   <- fSOM_p[1] * exp(fSOM_p[2]*(fCLAY))                 #CHANGED FOR GLOBAL RUN!!!     
+    
+    #desorb   <- desorb/10 # modified as in MIMdef from Zhang et al 2020
+    #fPHYS    <- fPHYS/5  # to reduce allocation to physically protected pool 5x
+    #fPHYS    <- fPHYS/2  # to reduce allocation to physically protected pool 5x
+    
+    
+    pSCALAR  <- PHYS_scalar[1] * exp(PHYS_scalar[2]*(sqrt(fCLAY)))  #Scalar for texture effects on SOMp
+    v_MOD    <- vMOD  # to avoid writing over orig. parameters
+    k_MOD    <- kMOD 
+    k_MOD[3] <- k_MOD[3] * pSCALAR    
+    k_MOD[6] <- k_MOD[6] * pSCALAR    
+    
+    VMAX     <- Vmax * v_MOD #* FW    #<-- DPierson added fW
+    KM       <- Km / k_MOD
+    
+    #initialize pools
+    I       <- array(NA, dim=2)              #Litter inputs to MET/STR
+    I[1]    <- (EST_LIT / depth) * fMET     
+    I[2]    <- (EST_LIT / depth) * (1-fMET)
+    lit     <- I   
+    mic     <- I  
+    som     <- rep(NA, 3) 
+    som[1]  <- I[1]
+    som[2]  <- I[2]
+    som[3]  <- I[1] 
+    LITmin  <- rep(NA, dim=4)
+    MICtrn  <- rep(NA, dim=6)
+    SOMmin  <- rep(NA, dim=2)
+    DEsorb  <- rep(NA, dim=1)
+    OXIDAT  <- rep(NA, dim=1)
+    
+    #Calculate RXEQ pools  
+    Tpars <- c( I = I, VMAX = VMAX, KM = KM, CUE = CUE, 
+                fPHYS = fPHYS, fCHEM = fCHEM, fAVAI = fAVAI, FI = FI, 
+                tau = tau, LITmin = LITmin, SOMmin = SOMmin, MICtrn = MICtrn, 
+                desorb = desorb, DEsorb = DEsorb, OXIDAT = OXIDAT, KO = KO)
+    Ty    <- c( LIT_1 = lit[1], LIT_2 = lit[2], 
+                MIC_1 = mic[1], MIC_2 = mic[2], 
+                SOM_1 = som[1], SOM_2 = som[2], SOM_3 = som[3] )
+    test  <- stode(y = Ty, time = 1e6, fun = RXEQ, parms = Tpars, positive = TRUE)
+    if (i == 2) {print(test[1])}
+    remove(lit, mic, som)
+  
+    table[i,2:8] <- as.numeric(test[[1]])
+    MIMLIT[i]    <- (test[[1]][[1]]+test[[1]][[2]])  * depth *1e4 / 1e6#convert kgC/m2 from mgC/cm3 (0-30 cm) 
+    MIMMIC[i]    <- (test[[1]][[3]]+test[[1]][[4]])  * depth *1e4 / 1e6
+    MIM_CO[i]    <-  test[[1]][[3]]/test[[1]][[4]]
+    MIMSOC[i]    <- sum(test[[1]])  * depth *1e4 / 1e6   
+    
+    remove(test, Ty, Tpars, LITmin, MICtrn, SOMmin)
+  
+  } # close i loop (sites)
+  
+  
+#plot results  
+data$MIMSOC <- MIMSOC  
+data$MIMMIC <- MIMMIC
+data$residual <- data$SOC-data$MIMSOC
+data$TSOIL <- tsoi
+#data$TSOIL_fW <- MAT*((1-fW)+0.5)
+data$TDIFF <- data$MAT - data$TSOIL
+
+# test correlation and model fit
+r2_test <- cor.test(data$SOC, data$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+#store data
+plot4_df <- data
+
+MIM_plot_defTau <- ggplot(plot4_df, aes(x=MIMSOC, y=SOC, color=-TDIFF)) + geom_point() +
+  scale_color_gradient(low="black", high="light blue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  annotate("text", label = paste0("r^2 = ", r_val), x = 2, y = 10, size = 3, colour = "dark blue") +
+  ggtitle("Adjusted params") +
+  xlim(0,8)  #+ 
+  #xlim(0,15)
+
+
+#save data table for use later
+colnames(table)[1] <- "Site"
+MIMout4 <- suppressWarnings(
+  as.data.frame(data) %>% full_join(as.data.frame(table))
+)
+
+```
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+grid.arrange(
+  MIM_plot,
+  MIM_plot_defTau,
+  nrow = 1,
+  top = "SOC vs MIMSOC",
+  bottom = textGrob(
+    "Default parameters",
+    gp = gpar(fontface = 3, fontsize = 9),
+    hjust = 0.8,
+    x = 0.95
+  )
+)
+
+```
+
+```{r message=FALSE, results=FALSE, out.width = '80%' }
+ggplot(MIMout4, aes(y=MIMSOC, x=as.numeric(as.character(MICr))+as.numeric(as.character(MICK)))) + geom_point() +
+  xlab("MICr + MICK") +
+  ggtitle("MIC pool size") +
+  geom_abline(intercept = 0, slope = 1/0.01, linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 1/0.02, linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 1/0.05, linetype = "dashed", color='red')
+
+```
+
+
+#### Seems like there's just too much C entering the system. Are the ANPP based litter input values too high?
