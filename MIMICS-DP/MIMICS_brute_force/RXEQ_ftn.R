@@ -32,11 +32,12 @@ RXEQ <- function(t, y, pars) {
                    (MIC_2 * VMAX[5] * SOM_2 / (KO[2]*KM[5] + MIC_2)) )  #oxidation of C to A
     
     dLIT_1 = I[1]*(1-FI[1]) - LITmin[1] - LITmin[3]
-    dMIC_1 = CUE[1]*(LITmin[1]+ SOMmin[1]) + CUE[2]*(LITmin[2]) - sum(MICtrn[1:3])
+    
+    dMIC_1 = CUE[1]*(LITmin[1]+ SOMmin[1]) + CUE[2]*(LITmin[2]) - (MICtrn[[1]] + MICtrn[[2]] + MICtrn[[3]])#sum(MICtrn[1:3])
     dSOM_1 = I[1]*FI[1] + MICtrn[1] + MICtrn[4]- DEsorb 
     
     dLIT_2 = I[2] * (1-FI[2]) - LITmin[2] - LITmin[4]
-    dMIC_2 = CUE[3]*(LITmin[3]+ SOMmin[2]) + CUE[4]*(LITmin[4]) - sum(MICtrn[4:6])  
+    dMIC_2 = CUE[3]*(LITmin[3]+ SOMmin[2]) + CUE[4]*(LITmin[4]) - (MICtrn[[4]] + MICtrn[[5]] + MICtrn[[6]])#sum(MICtrn[4:6])
     dSOM_2 = I[2]*FI[2] + MICtrn[2] + MICtrn[5] - OXIDAT
     
     dSOM_3 = MICtrn[3] + MICtrn[6] + DEsorb + OXIDAT - SOMmin[1] - SOMmin[2]
