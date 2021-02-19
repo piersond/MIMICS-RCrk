@@ -1,0 +1,116 @@
+---
+title: "RCrk MIMICS: Patton soil C stock data vs. others"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+always_allow_html: true
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+library(ggpubr)
+library(readxl)
+library(viridis)
+library(reshape)
+
+#for MIMICS
+library(rootSolve)
+library(boot)
+
+#for maps
+library(rgdal)
+library(leaflet)
+
+options(ggplot2.continuous.colour="viridis")
+options(ggplot2.continuous.fill = "viridis")
+options(width = 100)
+```
+
+### Sampling depth for forcing data soil C stocks
+
+***
+
+```{r message=FALSE, warning=FALSE, out.width = '100%', fig.width=10, fig.height=10}
+# bring in the MIMICS output data
+MIMout <- read.csv("C:/github/MIMICS-RCrk/MIMICS-DP/Site_data/MIMout_011121.csv", as.is=T)
+
+# bring in the RC SoDaH database
+RC_database <- readRDS("C:/github/RC-som-shiny/prototype/RCproto/data/RC_database_current.rds")
+RC_database  <- type.convert(RC_database)
+RC_database$uniqueID <- paste0("ID",seq(1,nrow(RC_database),1))
+RC_database <- RC_database %>% filter(!is.na(lat)) %>% filter(!is.na(long))
+
+
+#Filter database for only the surface layer SOC and select columns to join with MIMout
+RC_toplyr <- RC_database %>% filter(layer_top == 0) %>% select(lat, long, layer_top, layer_bot, lyr_c_tot, lyr_soc, lyr_soc_stock, bd_tot, bd_samp) 
+
+#Join RC database columns with MIMout by lat, long
+MIMout_join <- MIMout %>% left_join(RC_toplyr, by=c("LAT"="lat", "LONG"="long")) %>% filter(lyr_c_tot < 20)
+
+#plot residuals against lyr_c_tot for top layer of SOC
+# test correlation and model fit
+r2_test <- cor.test(MIMout_join$SOC, MIMout_join$MIMSOC)
+r_val <- round(as.numeric(unlist(r2_test ['estimate'])),3)
+
+ggplot(MIMout_join, aes(x=MIMSOC, y=SOC, color=lyr_soc_stock)) + geom_point(size=3) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")+
+  annotate("text", label = paste0("r^2 = ", r_val), x = 1.5, y = 9, size = 7, colour = "dark blue") +
+  ggtitle("Color: Surface layer SOC stock") +
+  geom_text(aes(label=paste0(layer_top,"-",layer_bot)),hjust=-0.2, vjust=-0.2)
+```
+
+<br>
+
+***
+
+### Using Patton data only (based on consistent 5 cm increments)
+
+- Cuts forcing data by ~1/2 the points
+```{r message=FALSE, warning=FALSE, out.width = '100%', fig.width=10, fig.height=10}
+
+#Filter for 0-5 cm increment
+MIMout_join5 <- MIMout_join %>% filter(layer_bot == 5)
+
+#plot residuals against lyr_c_tot for top layer of SOC
+# test correlation and model fit
+r2_test5 <- cor.test(MIMout_join5$SOC, MIMout_join5$MIMSOC)
+r_val5 <- round(as.numeric(unlist(r2_test5 ['estimate'])),3)
+
+ggplot(MIMout_join5, aes(x=MIMSOC, y=SOC, color=lyr_soc_stock)) + geom_point(size=3) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")+
+  annotate("text", label = paste0("r^2 = ", r_val5), x = 1.5, y = 9, size = 7, colour = "dark blue") +
+  ggtitle("Color: Surface layer SOC stock") +
+  geom_text(aes(label=paste0(layer_top,"-",layer_bot)),hjust=-0.2, vjust=-0.2) + 
+  xlim(0,5)
+```
+
+
+### Remove 2 Reynolds Mtn E pits with unusually low C
+
+- Cuts forcing data by ~1/2 the points
+```{r message=FALSE, warning=FALSE, out.width = '100%', fig.width=10, fig.height=10}
+
+#Filter for 0-5 cm increment
+MIMout_join5b <- MIMout_join5 %>% filter(Site != "S4") %>% filter(Site != "S6")
+
+#plot residuals against lyr_c_tot for top layer of SOC
+# test correlation and model fit
+r2_test5b <- cor.test(MIMout_join5b$SOC, MIMout_join5b$MIMSOC)
+r_val5b <- round(as.numeric(unlist(r2_test5b ['estimate'])),3)
+
+ggplot(MIMout_join5b, aes(x=MIMSOC, y=SOC, color=lyr_soc_stock)) + geom_point(size=3) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")+
+  annotate("text", label = paste0("r^2 = ", r_val5b), x = 1.5, y = 9, size = 7, colour = "dark blue") +
+  ggtitle("Color: Surface layer SOC stock") +
+  geom_text(aes(label=paste0(layer_top,"-",layer_bot)),hjust=-0.2, vjust=-0.2) +
+  xlim(0,5)
+```
+
+

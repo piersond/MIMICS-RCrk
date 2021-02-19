@@ -87,7 +87,7 @@ get_daily_JD_sm <- function(file_loc) {
 ### Use ftn to compile the soil moisture data into one dataframe 
 
 #set path to soil moisture data
-jd_soilmst_data_path <- "C:/Users/drkpi/Google Drive/RCrk/RC_SoDaH/RC_data/ARS_climate/Godsey JDraw Soil Moisture/raw data/"
+jd_soilmst_data_path <- "C:/Users/derek/Google Drive/RCrk/RC_SoDaH/RC_data/ARS_climate/Godsey JDraw Soil Moisture/raw data/"
 
 #get ARS siol moisture data files from path
 soil_mst_files <- list.files(jd_soilmst_data_path)

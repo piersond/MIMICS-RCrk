@@ -3,6 +3,7 @@ library(dplyr)
 library(ggplot2)
 library(lubridate)
 library(ncdf4)
+library(gridExtra)
 
 # tell R not to use scientific notation
 options(scipen = 999)
@@ -27,6 +28,25 @@ rcls$DateTime <- rcls$TIMESTAMP_END
 set_first_day = as.POSIXct("201409110030",format="%Y%m%d%H%M", tz="Etc/GMT-7") 
 set_last_day =  as.POSIXct("201809300000",format="%Y%m%d%H%M", tz="Etc/GMT-7")  
 rcls <- rcls %>% filter(between(DateTime, set_first_day,set_last_day))
+
+##############################################################################################
+### Plot to check sunrise time
+sunrise_plt_strt <- as.POSIXct("201604010000",format="%Y%m%d%H%M", tz="Etc/GMT-7") 
+sunrise_plt_end <- as.POSIXct("201604040000",format="%Y%m%d%H%M", tz="Etc/GMT-7")  
+
+sunrise_plt_df <- rcls
+sunrise_plt_df$DateTime <- sunrise_plt_df$DateTime# + hours(7)
+sunrise_plt_df <- sunrise_plt_df %>% filter(between(DateTime, sunrise_plt_strt, sunrise_plt_end))
+
+time_plt_raw <- ggplot(sunrise_plt_df, aes(x=DateTime, y=SW_IN)) + geom_point() + geom_line() +ggtitle("Rls raw - 2016") +
+  xlim(sunrise_plt_strt, sunrise_plt_end)
+time_plt_raw 
+
+time_plt_up7 <- ggplot(sunrise_plt_df, aes(x=DateTime+hours(7), y=SW_IN)) + geom_point() + geom_line() + ggtitle("Rls shift to UTC - 2016") +
+  xlim(sunrise_plt_strt, sunrise_plt_end)
+time_plt_up7
+#############################################################################################
+
 
 # create year column
 rcls$Year <- as.numeric(strftime(rcls$DateTime, format = "%Y"))
@@ -91,12 +111,17 @@ EddyProc.C$sMDSGapFill('PA', FillAll = TRUE) #DP switched from FALSE to TRUE
 
 
 # set location of site
-latSite = 43.1439 #43.1439 for Rls
-lonSiteW = -116.7356 #-116.7356 for Rls, +360 to convert from W to E
-EddyProc.C$sSetLocationInfo(LatDeg = latSite, LongDeg = lonSiteW, TimeZoneHour = -7)
+#latSite = 43.1439 #43.1439 for Rls
+latSite = 42.8795811518324
 
 #set lonSite for clm
-lonSiteE = -116.7356 + 360
+#lonSiteE = -116.7356 + 360
+lonSiteE = 243.75
+
+#lonSiteW = -116.7356 #-116.7356 for Rls, +360 to convert from W to E
+lonSiteW = lonSiteE - 360
+
+EddyProc.C$sSetLocationInfo(LatDeg = latSite, LongDeg = lonSiteW, TimeZoneHour = -7)
 
 # Nighttime-based partitioning of measured net ecosystem fluxes into gross primary production (GPP) and ecosystem respiration (Reco)
 EddyProc.C$sMRFluxPartition()
@@ -132,9 +157,7 @@ dataClm$ZBOT <- rep(2.09,nrow(dataClm))  #RCrk systems were mounted to towers be
                                          #surface for the WBS, LoS, PFS, and MBS site,
                                          #respectively.
 
-# Year month combination for data filtering
-dataClm$yearMon <- paste0(year(dataClm$DateTime), "-", 
-                          sprintf("%02d", month(dataClm$DateTime)))
+
 
 
 ##########################################################################################
@@ -148,26 +171,58 @@ for(i in 1:(ncol(dataClm)-3)){
 
 #QA plotter
 plot.df <- dataClm 
-ggplot(plot.df, aes(x=DateTime, y=PA)) + geom_line()
+
+### Debug cache dataCLM in dataClm2
+dataClm2 <- dataClm
+#dataClm <- dataClm2
+
+#ggplot(plot.df, aes(x=DateTime, y=PA)) + geom_line()
 
 #from flux tower data
-ggplot(rcls_flux_df, aes(x=DateTime, y=PA)) + geom_line()
+#ggplot(rcls_flux_df, aes(x=DateTime, y=PA)) + geom_line()
 
 #########################################################################################
 # Select only the continuous data set (no gaps)
 ###############################################################
-set_start_date = as.POSIXct("201502180000",format="%Y%m%d%H%M", tz="Etc/GMT-7") 
+# Convert time from MT to GMT == 7 hours forward
+#dataClm$DateTime[1]
+dataClm$DateTime <- dataClm$DateTime + hours(7)
+#dataClm$DateTime[1]
+
+#set period to select from data
+set_start_date = as.POSIXct("201502190000",format="%Y%m%d%H%M", tz="Etc/GMT-7") 
 set_end_date =  as.POSIXct("201809010000",format="%Y%m%d%H%M", tz="Etc/GMT-7")  
-ready_for_CLM <- dataClm %>% filter(between(DateTime, set_start_date,set_end_date))
+dataClm <- dataClm %>% filter(between(DateTime, set_start_date,set_end_date))
 
 #remove leap year days (Feb 29th)
-ready_for_CLM <- ready_for_CLM[!(format(ready_for_CLM$DateTime,"%m") == "02" & format(ready_for_CLM$DateTime, "%d") == "29"), ,drop = FALSE]
+dataClm <- dataClm[!(format(dataClm$DateTime,"%m") == "02" & format(dataClm$DateTime, "%d") == "29"), ,drop = FALSE]
+
+# Year month combination for data filtering
+dataClm$yearMon <- paste0(year(dataClm$DateTime), "-", 
+                          sprintf("%02d", month(dataClm$DateTime)))
 
 # Quick check of data for gaps
-#ggplot(ready_for_CLM, aes(x=DateTime, y=PA)) + geom_line()
+#ggplot(dataClm, aes(x=DateTime, y=PA)) + geom_line()
 
-# Convert time from MT to GMT
-ready_for_CLM$DateTime <- ready_for_CLM$DateTime + (60*60*7) # +7 hours
+
+##############################################################################
+# QC output
+##############################################################################
+
+#str(dataClm$DateTime)
+#str(dataClm2$DateTime)
+
+setYearMon <- unique(dataClm$yearMon)
+
+for (j in setYearMon) {
+
+  dataClm.mon <- dataClm[dataClm$yearMon == j,]
+  
+  print(paste0(j, ", nrow: ", as.character(nrow(dataClm.mon)), ", start: ", as.character(min(dataClm.mon$DateTime))))
+}
+
+
+#as.Date(dataClm$DateTime[1],format="%Y%m%d") 
 
 
 ##############################################################################
@@ -182,6 +237,22 @@ mv <- -9999
 #Set of year/month combinations for netCDF output
 setYearMon <- unique(dataClm$yearMon)
 
+
+# DEBUG: Check month start days 
+#############################################
+# for (m in setYearMon) {
+#   print(m)
+#   Data.mon <- dataClm[dataClm$yearMon == m,]
+#   print(paste("days since",as.Date(Data.mon$DateTime[1],format="%Y%m%d"), "00:00:00"))
+# }
+# 
+# df_check <- dataClm[dataClm$yearMon == "2016-03",]
+# df_check$DateTime[1]
+# as.Date(df_check$DateTime[1],format="%Y%m%d", tz = "Etc/GMT-7")
+# print(paste("days since",as.Date(df_check$DateTime[1],format="%Y%m%d", tz = "Etc/GMT-7"), "00:00:00"))
+
+#################################################
+
 verbose = TRUE
 for (m in setYearMon) {
   
@@ -194,7 +265,7 @@ for (m in setYearMon) {
   #endStep  <- startStep + nsteps[m]-1
   
   if (verbose) {
-    print(paste(m,"Data date =",Data.mon$DateTime[1], "00:00:00"))
+    print(paste(m,"Data date =", as.Date(Data.mon$DateTime[1],format="%Y%m%d", tz = "Etc/GMT-7"), "00:00:00"))
     names(Data.mon)
   }
   
@@ -209,7 +280,7 @@ for (m in setYearMon) {
   lon <- ncdf4::ncdim_def("lon","degrees_east", as.double(lonSiteE), create_dimvar=TRUE)
   
   #Variables to output to netCDF
-  time <- ncdf4::ncdim_def("time", paste("days since",Data.mon$DateTime[1], "00:00:00"),
+  time <- ncdf4::ncdim_def("time", paste("days since",as.Date(Data.mon$DateTime[1],format="%Y%m%d", tz = "Etc/GMT-7"), "00:00:00"),
                            vals=as.double(time),unlim=FALSE, create_dimvar=TRUE,
                            calendar = "gregorian")
   LATIXY  <- ncdf4::ncvar_def("LATIXY", "degrees N", list(lat), mv,
@@ -302,3 +373,18 @@ write.csv(dataClm, "C:/Users/Derek/Google Drive/RCrk/RC Flux Tower data/RC-Rls/g
 
 #save as RDS
 saveRDS(dataClm, file = "C:/Users/Derek/Google Drive/RCrk/RC Flux Tower data/RC-Rls/gap-filled_csv_rds/rcls_dataClm.rds")
+
+
+# Open and plot netCDF file to check time conversion
+#############################################################
+nc <- nc_open("C:/Users/Derek/Google Drive/RCrk/RC Flux Tower data/RC-Rls/gap-filled_monthly_netCDF/2016-04.nc")
+nc_time <- ncvar_get(nc, "time")
+nc_fsds <- ncvar_get(nc, "FSDS")
+nc_df <- data.frame(time=nc_time, FSDS = nc_fsds)
+nc_test_plt <- ggplot(nc_df[1:144,], aes(x=time, y=FSDS)) + geom_point() + geom_line() + ggtitle("netCDF data: April 2016")
+
+#plot should match!
+grid.arrange(time_plt_raw, time_plt_up7, nc_test_plt, ncol=1) 
+
+
+

@@ -1,0 +1,53 @@
+---
+title: "Improving soil temperature forcing data for MIMICS"
+output:
+  html_document:
+    code_folding: show
+---
+
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(DT)
+library(gridExtra)
+library(grid)
+
+```
+
+### Can we do better than MAT?
+
+***
+
+#### Two main questions:
+
+<br>
+
+**1) Does MAT approximate soil temp well across the elevational gradient?**
+
+- If so, this supports using MAT as the baselin soil temp input for MIMICS
+
+<br>
+
+**2) Does MAT align with soil temp differences between local aspects?**
+
+  - Can we show local aspect differences in soil temp?
+  
+  - Does incoming solar better align with aspect soil temp?
+  
+    ...if so, supports using incoming solar as adjustment to MAT in MIMICS
+
+***
+
+<br>
+
+### Soil moisture data prep
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+
+
+
+```
+
